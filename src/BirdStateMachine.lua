@@ -105,6 +105,13 @@ end
 -- @param dt: Delta time in milliseconds
 ---
 function BirdStateMachine:update(dt)
+    -- Debug despawning state
+    if self.currentState == BirdStateMachine.STATE_DESPAWNING and math.random() < 0.05 then
+        local moving = self.bird and self.bird:getIsMoving() or false
+        print(string.format("[BirdStateMachine] Despawning state update: birdMoving=%s timeInState=%.1fs",
+            tostring(moving), self:getTimeInState() / 1000))
+    end
+    
     if self.currentState == BirdStateMachine.STATE_SPAWNING then
         self:updateSpawningState(dt)
     elseif self.currentState == BirdStateMachine.STATE_APPROACHING_PLOW then
@@ -349,12 +356,8 @@ function BirdStateMachine:enterDespawningState()
     print(string.format("[BirdStateMachine] Despawning: flying from (%.1f, %.1f, %.1f) to (%.1f, %.1f, %.1f)", 
         currentX, currentY, currentZ, targetX, targetY, targetZ))
     
-    -- Set bird target with curved path, fast speed
-    if self.bird.moveToCurved then
-        self.bird:moveToCurved(targetX, targetY, targetZ, 16.0)  -- Fast despawn
-    else
-        self.bird:moveToTarget(targetX, targetY, targetZ, 16.0)
-    end
+    -- TEMP: Use straight line instead of curved to test
+    self.bird:moveToTarget(targetX, targetY, targetZ, 16.0)  -- Fast despawn
     
     -- Mark bird as despawning
     if self.bird then

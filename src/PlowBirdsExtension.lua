@@ -79,8 +79,8 @@ function PlowBirdsExtension:onUpdate(vehicle, dt)
         data.despawnTimer = PlowBirdsExtension.DESPAWN_DELAY
     end
     
-    -- Update hotspot position if active
-    if data.hotspot and data.hotspot:getIsActive() then
+    -- Update hotspot position even when inactive (for despawning birds)
+    if data.hotspot then
         data.hotspot:update(dt)
     end
     

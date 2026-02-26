@@ -169,6 +169,12 @@ function SimpleBirdDirect:update(dt)
         self.stateMachine:update(dt)
     end
     
+    -- Debug despawning birds
+    if self.isDespawning and math.random() < 0.1 then
+        print(string.format("[SimpleBirdDirect] Despawning update: hasTarget=%s isMoving=%s usingCurved=%s hasCurvedPath=%s",
+            tostring(self.hasTarget), tostring(self.isMoving), tostring(self.usingCurvedPath), tostring(self.curvedPath ~= nil)))
+    end
+    
     if not self.hasTarget or not self.isMoving then
         return
     end
@@ -177,6 +183,12 @@ function SimpleBirdDirect:update(dt)
     
     -- Movement along curved path
     if self.usingCurvedPath and self.curvedPath then
+        -- Debug for despawning birds
+        if self.isDespawning and math.random() < 0.05 then
+            print(string.format("[SimpleBirdDirect] Despawning curved movement: pathDist=%.1f totalLen=%.1f speed=%.1f",
+                self.pathDistance, self.curvedPath:getTotalLength(), self.moveSpeed))
+        end
+        
         -- Calculate distance to move this frame
         local moveDistance = self.moveSpeed * dtSeconds
         self.pathDistance = self.pathDistance + moveDistance
