@@ -1,6 +1,7 @@
 ---
 -- PlowBirdsExtension
 -- Extends the Plow specialization to spawn following birds while working
+-- Uses direct i3d management (SimpleBirdDirect) instead of wildlife system
 ---
 
 PlowBirdsExtension = {}
@@ -47,11 +48,6 @@ function PlowBirdsExtension:onUpdate(vehicle, dt)
     local spec = vehicle.spec_plow
     
     if not spec then
-        return
-    end
-    
-    -- Check if wildlife manager exists
-    if not g_wildlifeManager then
         return
     end
     
@@ -114,7 +110,7 @@ function PlowBirdsExtension:activateHotspot(vehicle)
     
     -- Create hotspot if it doesn't exist
     if not data.hotspot then
-        data.hotspot = PlowBirdHotspot.new(g_wildlifeManager, vehicle)
+        data.hotspot = PlowBirdHotspotDirect.new(vehicle)
     end
     
     -- Activate the hotspot

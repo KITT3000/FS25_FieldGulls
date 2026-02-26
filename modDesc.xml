@@ -16,27 +16,36 @@ Crows spawn behind the plow and fly to the freshly worked soil.
 
 Features:
 - Birds follow plows while working
-- Up to 10 birds per plow
-- Birds scatter and land in worked areas
-- Natural despawning after work stops
+- Up to 20 birds per plow
+- Realistic bird behavior with state machine lifecycle
+- Natural curved flight paths for realistic movement
+- Birds spawn 50m behind at 40m height
+- Birds approach plow, feed on ground, fly up and down
+- Smooth despawning when work stops
+- Direct i3d management for better performance
 
 ]]>
         </en>
         <de><![CDATA[Folgende Vögel
 
 Vögel folgen Pflügen und anderen Geräten während der Arbeit.
+Realistische Vogelbewegungen mit natürlichen Flugkurven.
 
 ]]>
         </de>
         <fr><![CDATA[Oiseaux Suivants
 
 Les oiseaux suivent les charrues pendant qu'elles travaillent.
+Mouvements d'oiseaux réalistes avec des courbes de vol naturelles.
 
 ]]>
         </fr>
     </description>
     <extraSourceFiles>
-        <sourceFile filename="src/PlowBirdHotspot.lua"/>
+        <sourceFile filename="src/CurvedPathPlanner.lua"/>
+        <sourceFile filename="src/BirdStateMachine.lua"/>
+        <sourceFile filename="src/SimpleBirdDirect.lua"/>
+        <sourceFile filename="src/PlowBirdHotspotDirect.lua"/>
         <sourceFile filename="src/PlowBirdsExtension.lua"/>
     </extraSourceFiles>
     <multiplayer supported="true"/>
