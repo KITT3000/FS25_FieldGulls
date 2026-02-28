@@ -259,9 +259,9 @@ end
 -- FEEDING GLIDE STATE: Glide at altitude for 1 second before diving
 ---
 function BirdStateMachine:enterFeedingGlideState()
-    -- Switch to fly animation (active flapping while looking down)
+    -- Switch to glide animation (smooth gliding while looking down)
     if self.bird.setAnimationByName then
-        self.bird:setAnimationByName(SimpleBirdDirect.ANIM_FLY)
+        self.bird:setAnimationByName(SimpleBirdDirect.ANIM_GLIDE)
     end
 
     -- Point bird downward as if looking at the ground (30-45 degrees down)
@@ -385,4 +385,28 @@ end
 ---
 function BirdStateMachine:isDespawning()
     return self.currentState == BirdStateMachine.STATE_DESPAWNING
+end
+
+---
+-- Get the appropriate animation name for the current state
+-- @return string: Animation name (e.g., "fly", "idleEat", etc.)
+---
+function BirdStateMachine:getCurrentStateAnimation()
+    if self.currentState == BirdStateMachine.STATE_SPAWNING then
+        return SimpleBirdDirect.ANIM_FLY
+    elseif self.currentState == BirdStateMachine.STATE_APPROACHING_PLOW then
+        return SimpleBirdDirect.ANIM_FLY
+    elseif self.currentState == BirdStateMachine.STATE_FEEDING_GROUND then
+        return SimpleBirdDirect.ANIM_IDLE_EAT
+    elseif self.currentState == BirdStateMachine.STATE_FEEDING_UP then
+        return SimpleBirdDirect.ANIM_FLY_UP
+    elseif self.currentState == BirdStateMachine.STATE_FEEDING_GLIDE then
+        return SimpleBirdDirect.ANIM_GLIDE
+    elseif self.currentState == BirdStateMachine.STATE_FEEDING_DOWN then
+        return SimpleBirdDirect.ANIM_FLY_DOWN_FLAP
+    elseif self.currentState == BirdStateMachine.STATE_DESPAWNING then
+        return SimpleBirdDirect.ANIM_FLY
+    else
+        return SimpleBirdDirect.ANIM_FLY -- Default fallback
+    end
 end

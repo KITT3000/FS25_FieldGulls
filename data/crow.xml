@@ -10,5 +10,5 @@
     </animation>
     
     <!-- Behavior configuration -->
-    <behavior groundIdleTimeMin="0.5" groundIdleTimeMax="2.0" />
+    <behavior groundIdleTimeMin="4.0" groundIdleTimeMax="6.0" />
 </species>
