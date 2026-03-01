@@ -9,7 +9,7 @@ local ToolBirdHotspotDirect_mt = Class(ToolBirdHotspotDirect)
 -- Configuration
 ToolBirdHotspotDirect.HOTSPOT_RADIUS = 5              -- Radius around the tool where birds gather (meters)
 ToolBirdHotspotDirect.HOTSPOT_OFFSET_MOVING = 0       -- Offset when tool is moving (meters)
-ToolBirdHotspotDirect.HOTSPOT_OFFSET_STOPPED = 3      -- Offset when tool is stopped (meters)
+ToolBirdHotspotDirect.HOTSPOT_OFFSET_STOPPED = 5      -- Offset when tool is stopped (meters)
 ToolBirdHotspotDirect.MOVEMENT_THRESHOLD = 0.1        -- Speed threshold to consider tool "moving" (m/s)
 ToolBirdHotspotDirect.MAX_BIRDS = 60                  -- Maximum number of birds around the tool
 ToolBirdHotspotDirect.UPDATE_INTERVAL = 50            -- Update hotspot position every 50ms (20 times per second)
@@ -121,6 +121,11 @@ function ToolBirdHotspotDirect:activate()
             self.isActive = true
             self.lastUpdateTime = g_time
             
+            -- Re-register with BirdManager for updates
+            if BirdManager and self.vehicle then
+                BirdManager:registerHotspot(self.vehicle, self)
+            end
+            
             -- Restart sound if needed
             if not self.soundStarted then
                 self.soundStartTime = g_time
@@ -155,6 +160,11 @@ function ToolBirdHotspotDirect:activate()
     self.birdsSpawned = false
     self.numBirdsSpawned = 0
     self.lastSpawnTime = g_time
+    
+    -- Re-register with BirdManager for updates
+    if BirdManager and self.vehicle then
+        BirdManager:registerHotspot(self.vehicle, self)
+    end
     
     -- Initialize sound
     self.soundStartTime = g_time
