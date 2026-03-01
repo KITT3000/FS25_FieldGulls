@@ -11,8 +11,7 @@ BirdStateMachine.STATE_SPAWNING = "spawning"             -- Bird is spawning and
 BirdStateMachine.STATE_APPROACHING_PLOW = "approaching"  -- Flying towards plow (initial approach)
 BirdStateMachine.STATE_FEEDING_GROUND = "feeding_ground" -- Picking ground target and flying to it
 BirdStateMachine.STATE_FEEDING_UP = "feeding_up"         -- Flying upward from ground
-BirdStateMachine.STATE_FEEDING_SEARCH = "feeding_search" -- Flying horizontally to find new location
-BirdStateMachine.STATE_FEEDING_DOWN = "feeding_down"     -- Flying back down
+BirdStateMachine.STATE_FEEDING_ARC = "feeding_arc"       -- Arcing path back down to ground
 BirdStateMachine.STATE_DESPAWNING = "despawning"         -- Flying away on deactivation
 
 ---
@@ -32,12 +31,10 @@ function BirdStateMachine.new(bird)
     self.feedingConfig = {
         groundTargetRadius = 8.0,   -- Pick targets within 8m of plow area
         upwardHeight = 10.0,        -- Base height to fly up (will add 0-5m randomness)
-        downwardTargetRadius = 5.0, -- Pick targets within 5m when going down
+        arcTargetRadius = 5.0,      -- Pick targets within 5m when arcing down
         minGroundHeight = 0.01,     -- Minimum height above ground
         maxGroundHeight = 0.02,     -- Maximum height above ground when feeding
-        searchRotationTime = 150,   -- Time to rotate towards new direction (milliseconds)
-        searchHoverTimeMin = 200,   -- Minimum time to hover after rotation (milliseconds)
-        searchHoverTimeMax = 500,   -- Maximum time to hover after rotation (milliseconds)
+        arcCurvature = 1.2,         -- Curvature for the arcing path (higher = more arc)
     }
 
     -- Enter the initial state to trigger behavior
@@ -93,10 +90,8 @@ function BirdStateMachine:onStateEnter(state)
         self:enterFeedingGroundState()
     elseif state == BirdStateMachine.STATE_FEEDING_UP then
         self:enterFeedingUpState()
-    elseif state == BirdStateMachine.STATE_FEEDING_SEARCH then
-        self:enterFeedingSearchState()
-    elseif state == BirdStateMachine.STATE_FEEDING_DOWN then
-        self:enterFeedingDownState()
+    elseif state == BirdStateMachine.STATE_FEEDING_ARC then
+        self:enterFeedingArcState()
     elseif state == BirdStateMachine.STATE_DESPAWNING then
         self:enterDespawningState()
     end
@@ -115,10 +110,8 @@ function BirdStateMachine:update(dt)
         self:updateFeedingGroundState(dt)
     elseif self.currentState == BirdStateMachine.STATE_FEEDING_UP then
         self:updateFeedingUpState(dt)
-    elseif self.currentState == BirdStateMachine.STATE_FEEDING_SEARCH then
-        self:updateFeedingSearchState(dt)
-    elseif self.currentState == BirdStateMachine.STATE_FEEDING_DOWN then
-        self:updateFeedingDownState(dt)
+    elseif self.currentState == BirdStateMachine.STATE_FEEDING_ARC then
+        self:updateFeedingArcState(dt)
     elseif self.currentState == BirdStateMachine.STATE_DESPAWNING then
         self:updateDespawningState(dt)
     end
@@ -158,7 +151,7 @@ function BirdStateMachine:enterApproachingPlowState()
     -- Target is near the plow area (consistent with feeding loop)
     -- Add some randomness for natural variation
     local randomAngle = math.random() * math.pi * 2
-    local randomRadius = math.random() * self.feedingConfig.downwardTargetRadius -- 0-5m from plow (same as feeding)
+    local randomRadius = math.random() * self.feedingConfig.arcTargetRadius -- 0-5m from plow (same as feeding)
 
     targetX = targetX + math.sin(randomAngle) * randomRadius
     targetZ = targetZ + math.cos(randomAngle) * randomRadius
@@ -269,112 +262,29 @@ end
 function BirdStateMachine:updateFeedingUpState(dt)
     -- Check if bird reached up target
     if not self.bird:getIsMoving() then
-        -- Transition directly to search state (skip glide for smoother horizontal transition)
-        self:setState(BirdStateMachine.STATE_FEEDING_SEARCH)
+        -- Transition to arcing state for smooth loop down
+        self:setState(BirdStateMachine.STATE_FEEDING_ARC)
     end
 end
 
 ---
--- FEEDING SEARCH STATE: Rotate and hover in place before diving
+-- FEEDING ARC STATE: Create smooth arcing path back down to ground
 ---
-function BirdStateMachine:enterFeedingSearchState()
-    -- Set active flying animation
-    if self.bird.setAnimationByName then
-        self.bird:setAnimationByName(SimpleBirdDirect.ANIM_FLY)
-    end
-
-    -- Pick a random horizontal direction for rotation
-    local randomAngle = math.random() * math.pi * 2
-
-    self.stateData.rotating = true
-    self.stateData.rotationStartTime = g_time
-    self.stateData.targetYaw = randomAngle
-
-    -- Calculate hover duration
-    self.stateData.hoverDuration = self.feedingConfig.searchHoverTimeMin +
-        math.random() * (self.feedingConfig.searchHoverTimeMax - self.feedingConfig.searchHoverTimeMin)
-
-    -- Store starting rotation (including pitch) for smooth interpolation
-    if self.bird.sceneNode then
-        local pitch, yaw, roll = getRotation(self.bird.sceneNode)
-        self.stateData.startYaw = yaw
-        self.stateData.startPitch = pitch
-    end
-end
-
-function BirdStateMachine:updateFeedingSearchState(dt)
-    -- First phase: Rotate towards new direction and level out pitch
-    if self.stateData.rotating then
-        local rotationElapsed = g_time - self.stateData.rotationStartTime
-
-        if rotationElapsed >= self.feedingConfig.searchRotationTime then
-            -- Rotation complete, start hovering
-            self.stateData.rotating = false
-            self.stateData.hoverStartTime = g_time
-
-            -- Set final rotation: level pitch, target yaw
-            if self.bird.sceneNode and self.stateData.targetYaw then
-                setRotation(self.bird.sceneNode, 0, self.stateData.targetYaw, 0)
-            end
-        else
-            -- Interpolate both yaw and pitch
-            if self.bird.sceneNode and self.stateData.startYaw and self.stateData.targetYaw and self.stateData.startPitch then
-                local t = rotationElapsed / self.feedingConfig.searchRotationTime
-
-                -- Interpolate yaw (calculate shortest rotation path)
-                local startYaw = self.stateData.startYaw
-                local targetYaw = self.stateData.targetYaw
-                local yawDiff = targetYaw - startYaw
-
-                -- Normalize to [-pi, pi]
-                while yawDiff > math.pi do yawDiff = yawDiff - 2 * math.pi end
-                while yawDiff < -math.pi do yawDiff = yawDiff + 2 * math.pi end
-
-                local currentYaw = startYaw + yawDiff * t
-
-                -- Interpolate pitch from startPitch to 0 (level flight)
-                local currentPitch = self.stateData.startPitch * (1 - t)
-
-                setRotation(self.bird.sceneNode, currentPitch, currentYaw, 0)
-            end
-        end
-        return
-    end
-
-    -- Second phase: Hover in place (keep rotation locked level)
-    if self.stateData.hoverStartTime then
-        -- Lock rotation at target yaw with level pitch during hover
-        if self.bird.sceneNode and self.stateData.targetYaw then
-            setRotation(self.bird.sceneNode, 0, self.stateData.targetYaw, 0)
-        end
-
-        local hoverElapsed = g_time - self.stateData.hoverStartTime
-
-        if hoverElapsed >= self.stateData.hoverDuration then
-            -- Hover complete, now dive back down
-            self:setState(BirdStateMachine.STATE_FEEDING_DOWN)
-        end
-    end
-end
-
----
--- FEEDING DOWN STATE: Fly back down to ground near plow
----
-function BirdStateMachine:enterFeedingDownState()
+function BirdStateMachine:enterFeedingArcState()
     if not self.bird or not self.bird.hotspot then
         return
     end
 
-    -- Set downward flying animation (with flapping)
+    -- Set flying animation for the arc
     if self.bird.setAnimationByName then
-        self.bird:setAnimationByName(SimpleBirdDirect.ANIM_FLY_DOWN_FLAP)
+        self.bird:setAnimationByName(SimpleBirdDirect.ANIM_FLY)
     end
 
     local hotspot = self.bird.hotspot
 
     -- Pick a new ground target near plow
     local randomAngle = math.random() * math.pi * 2
-    local randomRadius = math.random() * self.feedingConfig.downwardTargetRadius
+    local randomRadius = math.random() * self.feedingConfig.arcTargetRadius
 
     local targetX = hotspot.worldX + math.sin(randomAngle) * randomRadius
     local targetZ = hotspot.worldZ + math.cos(randomAngle) * randomRadius
@@ -388,21 +298,23 @@ function BirdStateMachine:enterFeedingDownState()
     self.stateData.targetY = targetY
     self.stateData.targetZ = targetZ
 
-    -- Set bird target with curved path for natural diving
+    -- Create arcing path with high curvature for smooth loop
     if self.bird.moveToCurved then
-        self.bird:moveToCurved(targetX, targetY, targetZ, 10.0)
+        self.bird:moveToCurved(targetX, targetY, targetZ, 10.0, self.feedingConfig.arcCurvature)
     else
         self.bird:moveToTarget(targetX, targetY, targetZ, 10.0)
     end
 end
 
-function BirdStateMachine:updateFeedingDownState(dt)
-    -- Check if bird reached down target
+function BirdStateMachine:updateFeedingArcState(dt)
+    -- Check if bird completed the arc and reached ground
     if not self.bird:getIsMoving() then
-        -- Complete the loop - go back to ground feeding
+        -- Arc complete - go back to ground feeding
         self:setState(BirdStateMachine.STATE_FEEDING_GROUND)
     end
 end
+
+
 
 ---
 -- DESPAWNING STATE: Pick random direction at 40-50m height and fly away
@@ -474,10 +386,8 @@ function BirdStateMachine:getCurrentStateAnimation()
         return SimpleBirdDirect.ANIM_IDLE_EAT
     elseif self.currentState == BirdStateMachine.STATE_FEEDING_UP then
         return SimpleBirdDirect.ANIM_FLY_UP
-    elseif self.currentState == BirdStateMachine.STATE_FEEDING_SEARCH then
+    elseif self.currentState == BirdStateMachine.STATE_FEEDING_ARC then
         return SimpleBirdDirect.ANIM_FLY
-    elseif self.currentState == BirdStateMachine.STATE_FEEDING_DOWN then
-        return SimpleBirdDirect.ANIM_FLY_DOWN_FLAP
     elseif self.currentState == BirdStateMachine.STATE_DESPAWNING then
         return SimpleBirdDirect.ANIM_FLY
     else
