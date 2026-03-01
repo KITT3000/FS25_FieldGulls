@@ -64,7 +64,6 @@ function SimpleBirdDirect.new(x, y, z, manager)
     -- Get bird attributes from shared config
     self.attributes = BirdConfig.getConfig()
     if not self.attributes then
-        print("[SimpleBirdDirect] ERROR: Failed to load bird configuration")
         delete(self.rootNode)
         return nil
     end
@@ -112,7 +111,6 @@ function SimpleBirdDirect:onBirdModelLoaded(i3dNode, failedReason, args)
     self.isLoading = false
 
     if failedReason ~= 0 then
-        print("[SimpleBirdDirect] ERROR: Failed to load bird model, reason: " .. tostring(failedReason))
         return
     end
 
@@ -124,7 +122,6 @@ function SimpleBirdDirect:onBirdModelLoaded(i3dNode, failedReason, args)
         if self.attributes.nodeIndex then
             sceneNode = I3DUtil.indexToObject(i3dNode, self.attributes.nodeIndex)
             if not sceneNode or sceneNode == 0 then
-                print("[SimpleBirdDirect] ERROR: Failed to find node at index: " .. tostring(self.attributes.nodeIndex))
                 delete(i3dNode)
                 return
             end
@@ -190,7 +187,6 @@ function SimpleBirdDirect:setupAnimations(animNode)
     if testAnimCharSet and testAnimCharSet ~= 0 then
         self.animCharSet = testAnimCharSet
     else
-        print("[SimpleBirdDirect] WARNING: No AnimCharacterSet found on node")
         return
     end
 

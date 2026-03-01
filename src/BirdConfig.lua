@@ -58,7 +58,7 @@ function BirdConfig.loadAttributesFromXML(xmlFile, key)
         attributes.animations[stateName] = anim
         x = x + 1
     end
-    
+
     return attributes
 end
 
@@ -80,7 +80,7 @@ function BirdConfig.loadConfig()
     if xmlFile and xmlFile ~= 0 then
         -- Load basic attributes
         BirdConfig.config = BirdConfig.loadAttributesFromXML(xmlFile, "species")
-        
+
         if BirdConfig.config then
             -- Load sound groups (simplified - just gets file paths from XML)
             local baseDirectory = BirdConfig.dir
@@ -88,23 +88,17 @@ function BirdConfig.loadConfig()
                 xmlFile,
                 baseDirectory
             )
-            
+
             -- Count sound groups manually
             local soundGroupCount = 0
             for _ in pairs(BirdConfig.config.soundGroups or {}) do
                 soundGroupCount = soundGroupCount + 1
             end
-            
-            print(string.format("[BirdConfig] Loaded bird configuration from %s", xmlFilename))
-            print(string.format("[BirdConfig] Loaded %d sound groups", soundGroupCount))
-        else
-            print(string.format("[BirdConfig] ERROR: Failed to parse bird configuration from %s", xmlFilename))
         end
-        
+
         delete(xmlFile)
         return BirdConfig.config
     else
-        print(string.format("[BirdConfig] ERROR: Failed to load XML file: %s", xmlFilename))
         return nil
     end
 end
@@ -148,8 +142,8 @@ function BirdConfig.loadSoundGroupsFromXML(xmlFile, baseDirectory)
                 name = soundGroupName,
                 cooldown = getXMLFloat(xmlFile, soundKey .. "#cooldown") or 0,
                 chance = getXMLFloat(xmlFile, soundKey .. "#chance") or 1.0,
-                volume = getXMLFloat(xmlFile, soundKey .. "#volume") or 1.0,  -- Default to 1.0 if not specified
-                fileNames = {}  -- Store file paths, not samples
+                volume = getXMLFloat(xmlFile, soundKey .. "#volume") or 1.0, -- Default to 1.0 if not specified
+                fileNames = {}                                               -- Store file paths, not samples
             }
 
             -- Load all sample file paths in this sound group

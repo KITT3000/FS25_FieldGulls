@@ -176,84 +176,91 @@ end
 -- @param isMoving: Boolean indicating if the vehicle/plow is currently moving
 -- @return targetX, targetZ: Random position in selected cell, or nil if no cells available
 ---
-function GridFeedingZones:requestFeedingTarget(birdX, birdZ, isMoving)
+function GridFeedingZones:requestFeedingTarget(birdX, birdZ, vehicleX, vehicleZ, isMoving)
     -- No cells available
     if #self.cellsByTimestamp == 0 then
         return nil, nil
     end
     
     local selectedCell = nil
+    local MIN_DISTANCE_FROM_TOOL = 2.0  -- Minimum 2 meters from tool
     
     -- 70% chance: Pick randomly from top 10 most recent cells
     -- 30% chance: Pick weighted by inverse distance
     if math.random() < 0.70 then
-        -- If vehicle is NOT moving, skip first 10 cells and pick from next 10
-        -- This prevents birds from landing directly on the stopped vehicle
-        local startIndex = 1
-        if isMoving == false then
-            startIndex = 11
+        -- Build list of valid cells (excluding those within 2m of tool)
+        local validCells = {}
+        for i = 1, math.min(20, #self.cellsByTimestamp) do
+            local cell = self.cellsByTimestamp[i]
+            local dx = cell.gridX - vehicleX
+            local dz = cell.gridZ - vehicleZ
+            local distFromTool = math.sqrt(dx * dx + dz * dz)
+            
+            if distFromTool >= MIN_DISTANCE_FROM_TOOL then
+                table.insert(validCells, cell)
+            end
         end
         
-        -- Check if we have enough cells available
-        if startIndex > #self.cellsByTimestamp then
-            -- Not enough cells - return nil to indicate no valid target
+        -- Check if we have any valid cells
+        if #validCells == 0 then
             return nil, nil
         end
         
-        -- Pick randomly from the appropriate range (10 cells starting from startIndex)
-        local endIndex = math.min(startIndex + 9, #self.cellsByTimestamp)
-        
-        local randomIndex = math.random(startIndex, endIndex)
-        selectedCell = self.cellsByTimestamp[randomIndex]
+        -- Pick randomly from valid cells (up to first 10)
+        local endIndex = math.min(10, #validCells)
+        local randomIndex = math.random(1, endIndex)
+        selectedCell = validCells[randomIndex]
     else
-        -- Distance-weighted strategy: favor closer cells
-        -- If vehicle is NOT moving, skip first 10 cells (same as above)
-        local startIndex = 1
-        if isMoving == false then
-            startIndex = 11
-        end
-        
-        -- Check if we have enough cells available
-        if startIndex > #self.cellsByTimestamp then
-            -- Not enough cells - return nil to indicate no valid target
-            return nil, nil
-        end
-        
+        -- Distance-weighted strategy: favor closer cells (to bird)
+        -- Build list of valid cells (excluding those within 2m of tool)
+        local validCells = {}
         local weights = {}
         local totalWeight = 0
         
-        -- Only consider cells from startIndex onwards
-        for i = startIndex, #self.cellsByTimestamp do
+        -- Consider recent cells, excluding those too close to the tool
+        for i = 1, #self.cellsByTimestamp do
             local cell = self.cellsByTimestamp[i]
-            local dx = cell.gridX - birdX
-            local dz = cell.gridZ - birdZ
-            local distanceSq = dx * dx + dz * dz
-            local distance = math.sqrt(distanceSq)
             
-            -- Inverse distance weight (closer = higher weight)
-            -- Add small constant to avoid division by zero
-            local weight = 1.0 / (distance + 1.0)
-            weights[i] = weight
-            totalWeight = totalWeight + weight
+            -- Check distance from tool
+            local dxTool = cell.gridX - vehicleX
+            local dzTool = cell.gridZ - vehicleZ
+            local distFromTool = math.sqrt(dxTool * dxTool + dzTool * dzTool)
+            
+            if distFromTool >= MIN_DISTANCE_FROM_TOOL then
+                -- Calculate weight based on distance to bird
+                local dx = cell.gridX - birdX
+                local dz = cell.gridZ - birdZ
+                local distanceSq = dx * dx + dz * dz
+                local distance = math.sqrt(distanceSq)
+                
+                -- Inverse distance weight (closer to bird = higher weight)
+                local weight = 1.0 / (distance + 1.0)
+                table.insert(validCells, cell)
+                table.insert(weights, weight)
+                totalWeight = totalWeight + weight
+            end
+        end
+        
+        -- Check if we have any valid cells
+        if #validCells == 0 then
+            return nil, nil
         end
         
         -- Weighted random selection
         local randomValue = math.random() * totalWeight
         local cumulativeWeight = 0
         
-        for i = startIndex, #self.cellsByTimestamp do
-            if weights[i] then
-                cumulativeWeight = cumulativeWeight + weights[i]
-                if randomValue <= cumulativeWeight then
-                    selectedCell = self.cellsByTimestamp[i]
-                    break
-                end
+        for i = 1, #validCells do
+            cumulativeWeight = cumulativeWeight + weights[i]
+            if randomValue <= cumulativeWeight then
+                selectedCell = validCells[i]
+                break
             end
         end
         
-        -- Fallback: pick first allowable cell if weighted selection failed
-        if not selectedCell then
-            selectedCell = self.cellsByTimestamp[startIndex]
+        -- Fallback: pick first valid cell if weighted selection failed
+        if not selectedCell and #validCells > 0 then
+            selectedCell = validCells[1]
         end
     end
     

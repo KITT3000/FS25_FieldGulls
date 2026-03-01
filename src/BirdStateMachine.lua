@@ -12,6 +12,7 @@ BirdStateMachine.STATE_APPROACHING_PLOW = "approaching"  -- Flying towards plow 
 BirdStateMachine.STATE_FEEDING_GROUND = "feeding_ground" -- Picking ground target and flying to it
 BirdStateMachine.STATE_FEEDING_UP = "feeding_up"         -- Flying upward from ground
 BirdStateMachine.STATE_FEEDING_ARC = "feeding_arc"       -- Arcing path back down to ground
+BirdStateMachine.STATE_SEARCHING = "searching"           -- Flying in air searching for cells
 BirdStateMachine.STATE_DESPAWNING = "despawning"         -- Flying away on deactivation
 
 ---
@@ -35,6 +36,9 @@ function BirdStateMachine.new(bird)
         minGroundHeight = 0.01,     -- Minimum height above ground
         maxGroundHeight = 0.02,     -- Maximum height above ground when feeding
         arcCurvature = 1.2,         -- Curvature for the arcing path (higher = more arc)
+        searchingHeight = 15.0,     -- Height to fly at when searching (10-20m)
+        searchingDistance = 15.0,   -- Distance between search points (10-20m)
+        searchingCheckInterval = 3000,  -- Check for cells every 3 seconds
     }
 
     -- Enter the initial state to trigger behavior
@@ -92,6 +96,8 @@ function BirdStateMachine:onStateEnter(state)
         self:enterFeedingUpState()
     elseif state == BirdStateMachine.STATE_FEEDING_ARC then
         self:enterFeedingArcState()
+    elseif state == BirdStateMachine.STATE_SEARCHING then
+        self:enterSearchingState()
     elseif state == BirdStateMachine.STATE_DESPAWNING then
         self:enterDespawningState()
     end
@@ -112,6 +118,8 @@ function BirdStateMachine:update(dt)
         self:updateFeedingUpState(dt)
     elseif self.currentState == BirdStateMachine.STATE_FEEDING_ARC then
         self:updateFeedingArcState(dt)
+    elseif self.currentState == BirdStateMachine.STATE_SEARCHING then
+        self:updateSearchingState(dt)
     elseif self.currentState == BirdStateMachine.STATE_DESPAWNING then
         self:updateDespawningState(dt)
     end
@@ -150,20 +158,21 @@ function BirdStateMachine:enterApproachingPlowState()
     -- Check if vehicle is moving
     local isMoving = self:isVehicleMoving()
 
+    -- Get vehicle position for distance filtering
+    local vehicleX, vehicleY, vehicleZ = getWorldTranslation(self.bird.manager.vehicle.rootNode)
+
     -- Request a feeding target from the central grid system
     if g_gridFeedingZones then
-        local cellTargetX, cellTargetZ = g_gridFeedingZones:requestFeedingTarget(currentX, currentZ, isMoving)
+        local cellTargetX, cellTargetZ = g_gridFeedingZones:requestFeedingTarget(currentX, currentZ, vehicleX, vehicleZ, isMoving)
         if cellTargetX and cellTargetZ then
             targetX = cellTargetX
             targetZ = cellTargetZ
         else
-            -- No cell found - this bird will circle and wait
+            -- No cell found - transition to searching state
             local totalCells = g_gridFeedingZones:getCellCount()
-            print(string.format("[BirdStateMachine] Warning: No grid cell found for bird approaching (total cells: %d), bird will circle", totalCells))
-            local randomAngle = math.random() * math.pi * 2
-            local randomRadius = 20 + math.random() * 10
-            targetX = currentX + math.sin(randomAngle) * randomRadius
-            targetZ = currentZ + math.cos(randomAngle) * randomRadius
+            print(string.format("[BirdStateMachine] No grid cell found for approaching (total cells: %d), entering search mode", totalCells))
+            self:setState(BirdStateMachine.STATE_SEARCHING)
+            return
         end
     end
 
@@ -386,27 +395,27 @@ function BirdStateMachine:requestTargetAndDive()
     -- Check if vehicle is moving
     local isMoving = self:isVehicleMoving()
 
+    -- Get vehicle position for distance filtering
+    local vehicleX, vehicleY, vehicleZ = getWorldTranslation(self.bird.manager.vehicle.rootNode)
+
     -- Request a feeding target from the central grid system
     if g_gridFeedingZones then
-        local cellTargetX, cellTargetZ = g_gridFeedingZones:requestFeedingTarget(currentX, currentZ, isMoving)
+        local cellTargetX, cellTargetZ = g_gridFeedingZones:requestFeedingTarget(currentX, currentZ, vehicleX, vehicleZ, isMoving)
         if cellTargetX and cellTargetZ then
             targetX = cellTargetX
             targetZ = cellTargetZ
         else
-            -- No cells found - pick random nearby spot
+            -- No cells found - transition to searching state
             local totalCells = g_gridFeedingZones:getCellCount()
-            print(string.format("[BirdStateMachine] Warning: No grid cell for dive (total cells: %d), bird will pick random spot", totalCells))
-            local randomAngle = math.random() * math.pi * 2
-            local randomRadius = 15 + math.random() * 10
-            targetX = currentX + math.sin(randomAngle) * randomRadius
-            targetZ = currentZ + math.cos(randomAngle) * randomRadius
+            print(string.format("[BirdStateMachine] No grid cell for dive (total cells: %d), entering search mode", totalCells))
+            self:setState(BirdStateMachine.STATE_SEARCHING)
+            return
         end
     else
-        -- Grid system not available - pick random spot
-        local randomAngle = math.random() * math.pi * 2
-        local randomRadius = 15 + math.random() * 10
-        targetX = currentX + math.sin(randomAngle) * randomRadius
-        targetZ = currentZ + math.cos(randomAngle) * randomRadius
+        -- Grid system not available - transition to searching state
+        print("[BirdStateMachine] Grid system not available, entering search mode")
+        self:setState(BirdStateMachine.STATE_SEARCHING)
+        return
     end
 
     -- Ground level target
@@ -427,6 +436,67 @@ function BirdStateMachine:requestTargetAndDive()
 end
 
 
+---
+-- SEARCHING STATE: Fly around in the air searching for available grid cells
+---
+function BirdStateMachine:enterSearchingState()
+    local currentX, currentY, currentZ = self.bird:getCurrentPosition()
+
+    -- Set flying animation
+    if self.bird.setAnimationByName then
+        self.bird:setAnimationByName(SimpleBirdDirect.ANIM_FLY)
+    end
+
+    -- Store when we last checked for cells
+    self.stateData.lastCellCheck = g_time
+
+    -- Pick a random aerial point to fly to
+    local randomAngle = math.random() * math.pi * 2
+    local randomDistance = 10 + math.random() * 10 -- 10-20 meters
+    
+    local targetX = currentX + math.sin(randomAngle) * randomDistance
+    local targetZ = currentZ + math.cos(randomAngle) * randomDistance
+    
+    -- Target height: 10-20m above terrain
+    local targetTerrainY = getTerrainHeightAtWorldPos(g_currentMission.terrainRootNode, targetX, 0, targetZ)
+    local targetHeight = self.feedingConfig.searchingHeight + math.random() * 5 -- 15-20m
+    local targetY = targetTerrainY + targetHeight
+
+    self.bird:moveToTarget(targetX, targetY, targetZ, 8.0)
+end
+
+function BirdStateMachine:updateSearchingState(dt)
+    -- Check if reached current target
+    if not self.bird.hasTarget or not self.bird.isMoving then
+        -- Pick new aerial target
+        local currentX, currentY, currentZ = self.bird:getCurrentPosition()
+        local randomAngle = math.random() * math.pi * 2
+        local randomDistance = 10 + math.random() * 10 -- 10-20 meters
+        
+        local targetX = currentX + math.sin(randomAngle) * randomDistance
+        local targetZ = currentZ + math.cos(randomAngle) * randomDistance
+        
+        local targetTerrainY = getTerrainHeightAtWorldPos(g_currentMission.terrainRootNode, targetX, 0, targetZ)
+        local targetHeight = self.feedingConfig.searchingHeight + math.random() * 5
+        local targetY = targetTerrainY + targetHeight
+
+        self.bird:moveToTarget(targetX, targetY, targetZ, 8.0)
+    end
+
+    -- Periodically check if cells are now available
+    local timeSinceLastCheck = g_time - (self.stateData.lastCellCheck or 0)
+    if timeSinceLastCheck > self.feedingConfig.searchingCheckInterval then
+        self.stateData.lastCellCheck = g_time
+        
+        -- Check if cells are available
+        if g_gridFeedingZones and g_gridFeedingZones:getCellCount() > 0 then
+            -- Cells available - return to feeding
+            print("[BirdStateMachine] Cells now available, exiting search mode")
+            self:setState(BirdStateMachine.STATE_APPROACHING_PLOW)
+        end
+    end
+end
+
 
 ---
 -- DESPAWNING STATE: Pick random direction at 40-50m height and fly away
@@ -441,10 +511,10 @@ function BirdStateMachine:enterDespawningState()
 
     -- Pick a random direction
     local randomAngle = math.random() * math.pi * 2
-    local randomDistance = 40.0 + math.random() * 30.0 -- 40-70m away
+    local targetDistance = 200.0 -- 200m away (far enough to be out of sight)
 
-    local targetX = currentX + math.sin(randomAngle) * randomDistance
-    local targetZ = currentZ + math.cos(randomAngle) * randomDistance
+    local targetX = currentX + math.sin(randomAngle) * targetDistance
+    local targetZ = currentZ + math.cos(randomAngle) * targetDistance
 
     -- Target height: 40-50m above terrain
     local targetTerrainY = getTerrainHeightAtWorldPos(g_currentMission.terrainRootNode, targetX, 0, targetZ)
@@ -454,7 +524,7 @@ function BirdStateMachine:enterDespawningState()
     self.stateData.despawnStartTime = g_time
 
     -- Use straight line for fast despawn
-    self.bird:moveToTarget(targetX, targetY, targetZ, 16.0) -- Fast despawn
+    self.bird:moveToTarget(targetX, targetY, targetZ, 12.0) -- Fast despawn (increased speed)
 
     -- Mark bird as despawning
     if self.bird then
@@ -523,6 +593,8 @@ function BirdStateMachine:getCurrentStateAnimation()
     elseif self.currentState == BirdStateMachine.STATE_FEEDING_UP then
         return SimpleBirdDirect.ANIM_FLY_UP
     elseif self.currentState == BirdStateMachine.STATE_FEEDING_ARC then
+        return SimpleBirdDirect.ANIM_FLY
+    elseif self.currentState == BirdStateMachine.STATE_SEARCHING then
         return SimpleBirdDirect.ANIM_FLY
     elseif self.currentState == BirdStateMachine.STATE_DESPAWNING then
         return SimpleBirdDirect.ANIM_FLY

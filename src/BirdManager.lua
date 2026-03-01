@@ -39,7 +39,6 @@ function BirdManager:loadMap()
     
     -- Initialize global grid feeding zones system
     g_gridFeedingZones = GridFeedingZones.new()
-    print("[BirdManager] Grid feeding zones initialized")
 end
 
 ---
