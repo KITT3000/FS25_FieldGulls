@@ -100,9 +100,24 @@ DESPAWN_DURATION = 10000        -- How long birds fly away (ms)
 **Extends**: ToolBirdsExtension  
 **Specifics**:
 - Uses `WorkAreaType.PLOW` to identify plow work areas
-- Calculates working width from work area geometry
-- Spawns hotspot on first plow activation
-- Can be duplicated for other tool types (cultivator, seeder, etc.)
+- Tracks grid cells from processed work areas
+- Manages bird spawning and despawning based on work state
+
+#### `src/extensions/CultivatorExtension.lua`
+**Purpose**: Cultivator-specific implementation  
+**Extends**: ToolBirdsExtension  
+**Specifics**:
+- Uses `WorkAreaType.CULTIVATOR` for cultivators
+- Hooks into `processCultivatorArea` to track work
+- Similar pattern to PlowExtension
+
+#### `src/extensions/SowingMachineExtension.lua`
+**Purpose**: Seeder/Planter-specific implementation  
+**Extends**: ToolBirdsExtension  
+**Specifics**:
+- Uses `WorkAreaType.SOWINGMACHINE` for seeders and planters
+- Hooks into `processSowingMachineArea` to track work
+- Birds follow seeding operations just like plowing
 
 ### Utility Files
 
@@ -303,26 +318,20 @@ When modifying code, test these scenarios:
 - **Curved Paths**: Slightly more expensive than straight paths but negligible for 60 birds.
 - **Scene Graph**: Each bird is a transformGroup node. Keep cleanup rigorous to prevent memory leaks.
 
-## Future Enhancement Ideas
-
-- Support for other tool types (cultivator, seeder, spreader)
-- Multiple bird species with different behaviors
-- Weather-dependent spawning (more birds after rain)
-- Seasonal variations
-- Individual bird sounds (currently only flock sound)
-- Perching on vehicles when stopped for extended periods
-- Interaction with other mods (Seasons, Precision Farming)
-
 ## modDesc.xml Load Order
 **Critical**: Files must load in this order:
-1. BirdManager (global manager, must be first)
-2. CurvedPathPlanner (used by SimpleBirdDirect)
-3. BirdStateMachine (used by SimpleBirdDirect)
-4. BirdConfig (loads data, used by SimpleBirdDirect)
-5. SimpleBirdDirect (bird instances, used by ToolBirdHotspotDirect)
-6. ToolBirdHotspotDirect (hotspot manager, used by extensions)
-7. ToolBirdsExtension (base extension)
-8. PlowExtension (specific tool extension)
+1. BirdSettings (user settings, requires XML functions)
+2. BirdManager (global manager, must be early)
+3. GridFeedingZones (feeding cell system, used by extensions)
+4. CurvedPathPlanner (used by SimpleBirdDirect)
+5. BirdStateMachine (used by SimpleBirdDirect)
+6. BirdConfig (loads data, used by SimpleBirdDirect)
+7. SimpleBirdDirect (bird instances, used by ToolBirdFlockManager)
+8. ToolBirdFlockManager (flock manager, used by extensions)
+9. ToolBirdsExtension (base extension)
+10. PlowExtension (specific tool extension)
+11. CultivatorExtension (specific tool extension)
+12. SowingMachineExtension (specific tool extension)
 
 Changing this order may cause `nil` references or undefined globals.
 

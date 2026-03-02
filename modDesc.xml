@@ -11,7 +11,7 @@
     <description>
         <en><![CDATA[Field Gulls
 
-A mod to add gulls that follow you and eat from the ground when plowing or using similar tools.
+A mod to add gulls that follow you and eat from the ground when plowing, cultivating, seeding, or using similar tools.
 
 GitHub: https://github.com/sprkem/FS25_FollowingBirds
 
@@ -19,7 +19,7 @@ GitHub: https://github.com/sprkem/FS25_FollowingBirds
         </en>
         <de><![CDATA[Feldmöwen
 
-Ein Mod, der Möwen hinzufügt, die Ihnen folgen und vom Boden fressen, wenn Sie pflügen oder ähnliche Werkzeuge verwenden.
+Ein Mod, der Möwen hinzufügt, die Ihnen folgen und vom Boden fressen, wenn Sie pflügen, kultivieren, säen oder ähnliche Werkzeuge verwenden.
 
 GitHub: https://github.com/sprkem/FS25_FollowingBirds
 
@@ -27,7 +27,7 @@ GitHub: https://github.com/sprkem/FS25_FollowingBirds
         </de>
         <fr><![CDATA[Mouettes de Champ
 
-Un mod pour ajouter des mouettes qui vous suivent et se nourrissent du sol lorsque vous labourez ou utilisez des outils similaires.
+Un mod pour ajouter des mouettes qui vous suivent et se nourrissent du sol lorsque vous labourez, cultivez, semez ou utilisez des outils similaires.
 
 GitHub: https://github.com/sprkem/FS25_FollowingBirds
 
@@ -46,6 +46,7 @@ GitHub: https://github.com/sprkem/FS25_FollowingBirds
         <sourceFile filename="src/ToolBirdsExtension.lua"/>
         <sourceFile filename="src/extensions/PlowExtension.lua"/>
         <sourceFile filename="src/extensions/CultivatorExtension.lua"/>
+        <sourceFile filename="src/extensions/SowingMachineExtension.lua"/>
     </extraSourceFiles>
     <multiplayer supported="true"/>
     <l10n filenamePrefix="languages/l10n" />
