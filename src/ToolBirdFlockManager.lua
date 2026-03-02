@@ -37,10 +37,12 @@ function ToolBirdFlockManager.getToolWorkingWidth(vehicle, workAreaType)
     local minX, minZ = math.huge, math.huge
     local maxX, maxZ = -math.huge, -math.huge
     local foundAnyWorkArea = false
+    local workAreaCount = 0
 
     for _, workArea in ipairs(workAreas) do
         if workArea.type == workAreaType and workArea.start and workArea.width and workArea.height then
             foundAnyWorkArea = true
+            workAreaCount = workAreaCount + 1
             
             -- Get all three corner points of the work area
             local sx, _, sz = getWorldTranslation(workArea.start)

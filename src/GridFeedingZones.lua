@@ -7,7 +7,7 @@ GridFeedingZones = {}
 local GridFeedingZones_mt = Class(GridFeedingZones)
 
 -- Configuration
-GridFeedingZones.GRID_SIZE = 0.5          -- 0.5m x 0.5m grid cells
+GridFeedingZones.GRID_SIZE = 1          -- 1m x 1m grid cells
 GridFeedingZones.CELL_EXPIRE_TIME = 30000 -- Cells expire after 30 seconds (ms)
 GridFeedingZones.BUFFER_TIME = 10000      -- Time before moving to recently eaten (ms)
 GridFeedingZones.RECENTLY_EATEN_EXPIRE_TIME = 60000 -- Recently eaten cells expire after 60 seconds (ms)
@@ -184,19 +184,27 @@ end
 ---
 -- Request a feeding target for a bird (centralized selection system)
 -- @param birdX, birdZ: Bird's current world position
+-- @param vehicleX, vehicleZ: Vehicle center position
 -- @param isMoving: Boolean indicating if the vehicle/plow is currently moving
+-- @param workingWidth: Working width of the tool (meters)
 -- @return targetX, targetZ: Random position in selected cell, or nil if no cells available
 ---
-function GridFeedingZones:requestFeedingTarget(birdX, birdZ, vehicleX, vehicleZ, isMoving)
+function GridFeedingZones:requestFeedingTarget(birdX, birdZ, vehicleX, vehicleZ, isMoving, workingWidth)
     -- No cells available
     if #self.cellsByTimestamp == 0 then
         return nil, nil
     end
 
     local selectedCell = nil
-    local MIN_DISTANCE_FROM_TOOL = 3.0
+    
+    -- Scale exclusion zone with working width: 10% of width, clamped between 0.5m and 2.0m
+    -- This prevents birds landing on the tractor itself without excluding most of a wide implement
+    local MIN_DISTANCE_FROM_TOOL = 0.5 -- Default fallback
+    if workingWidth and workingWidth > 0 then
+        MIN_DISTANCE_FROM_TOOL = math.max(0.5, math.min(2.0, workingWidth * 0.10))
+    end
 
-    -- 75% chance: Pick randomly from top 10 most recent cells
+    -- 75% chance: Pick randomly from top most recent cells
     -- 25% chance: Pick weighted by inverse distance
     if math.random() < 0.75 then
         local validCells = {}
@@ -321,6 +329,9 @@ function GridFeedingZones.getAffectedGridCells(sx, sz, wx, wz, hx, hz)
     local maxX = math.max(sx, wx, hx)
     local minZ = math.min(sz, wz, hz)
     local maxZ = math.max(sz, wz, hz)
+    
+    local areaWidth = maxX - minX
+    local areaHeight = maxZ - minZ
 
     local startGridX = math.floor(minX / GridFeedingZones.GRID_SIZE) * GridFeedingZones.GRID_SIZE
     local endGridX = math.floor(maxX / GridFeedingZones.GRID_SIZE) * GridFeedingZones.GRID_SIZE

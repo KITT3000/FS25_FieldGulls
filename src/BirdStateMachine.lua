@@ -164,10 +164,11 @@ function BirdStateMachine:enterApproachingPlowState()
         -- Request a feeding target from the central grid system
         local isMoving = self:isVehicleMoving()
         local vehicleX, vehicleY, vehicleZ = getWorldTranslation(self.bird.manager.vehicle.rootNode)
+        local workingWidth = self.bird.manager.workingWidth
 
         if g_gridFeedingZones then
             local cellTargetX, cellTargetZ = g_gridFeedingZones:requestFeedingTarget(currentX, currentZ, vehicleX, vehicleZ,
-                isMoving)
+                isMoving, workingWidth)
             if cellTargetX and cellTargetZ then
                 targetX = cellTargetX
                 targetZ = cellTargetZ
@@ -401,9 +402,10 @@ function BirdStateMachine:requestTargetAndDive()
     local vehicleX, vehicleY, vehicleZ = getWorldTranslation(self.bird.manager.vehicle.rootNode)
 
     -- Request a feeding target from the central grid system
+    local workingWidth = self.bird.manager.workingWidth
     if g_gridFeedingZones then
         local cellTargetX, cellTargetZ = g_gridFeedingZones:requestFeedingTarget(currentX, currentZ, vehicleX, vehicleZ,
-            isMoving)
+            isMoving, workingWidth)
         if cellTargetX and cellTargetZ then
             targetX = cellTargetX
             targetZ = cellTargetZ
@@ -494,7 +496,8 @@ function BirdStateMachine:updateSearchingState(dt)
             local vehicleX, vehicleY, vehicleZ = getWorldTranslation(self.bird.manager.vehicle.rootNode)
             
             -- Try to get a valid target (this will filter by distance from tool)
-            local testX, testZ = g_gridFeedingZones:requestFeedingTarget(currentX, currentZ, vehicleX, vehicleZ, isMoving)
+            local workingWidth = self.bird.manager.workingWidth
+            local testX, testZ = g_gridFeedingZones:requestFeedingTarget(currentX, currentZ, vehicleX, vehicleZ, isMoving, workingWidth)
             
             if testX and testZ then
                 -- Valid target available - store it and return to feeding

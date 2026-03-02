@@ -48,4 +48,5 @@ GitHub: https://github.com/sprkem/FS25_FollowingBirds
         <sourceFile filename="src/extensions/CultivatorExtension.lua"/>
     </extraSourceFiles>
     <multiplayer supported="true"/>
+    <l10n filenamePrefix="languages/l10n" />
 </modDesc>

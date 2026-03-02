@@ -49,6 +49,88 @@ function BirdSettings.getStateIndex(id, value)
     return BirdSettings.SETTINGS[id].default
 end
 
+-- READ/WRITE SETTINGS
+function BirdSettings.writeSettings()
+    local key = "fieldGulls"
+    local userSettingsFile = Utils.getFilename("modSettings/FieldGulls.xml", getUserProfileAppPath())
+    
+    local xmlFile = createXMLFile("settings", userSettingsFile, key)
+    if xmlFile ~= 0 then
+        
+        local function setXmlValue(id)
+            if not id or not BirdSettings.SETTINGS[id] then
+                return
+            end
+            
+            local xmlValueKey = "fieldGulls." .. id .. "#value"
+            local value = BirdSettings.settings[id]
+            if type(value) == 'number' then
+                setXMLFloat(xmlFile, xmlValueKey, value)
+            elseif type(value) == 'boolean' then
+                setXMLBool(xmlFile, xmlValueKey, value)
+            end
+        end
+        
+        for _, id in pairs(BirdSettings.menuItems) do
+            setXmlValue(id)
+        end
+        
+        saveXMLFile(xmlFile)
+        delete(xmlFile)
+    end
+end
+
+function BirdSettings.readSettings()
+    local userSettingsFile = Utils.getFilename("modSettings/FieldGulls.xml", getUserProfileAppPath())
+    
+    if not fileExists(userSettingsFile) then
+        print("[FieldGulls] Creating user settings file: " .. userSettingsFile)
+        BirdSettings.writeSettings()
+        return
+    end
+    
+    local xmlFile = loadXMLFile("fieldGulls", userSettingsFile)
+    if xmlFile ~= 0 then
+        
+        local function getXmlValue(id)
+            local setting = BirdSettings.SETTINGS[id]
+            if setting then
+                local xmlValueKey = "fieldGulls." .. id .. "#value"
+                local value = BirdSettings.settings[id]
+                local value_string = tostring(value)
+                if hasXMLProperty(xmlFile, xmlValueKey) then
+                    
+                    if type(value) == 'number' then
+                        value = getXMLFloat(xmlFile, xmlValueKey) or value
+                        
+                        if value == math.floor(value) then
+                            value_string = tostring(value)
+                        else
+                            value_string = string.format("%.3f", value)
+                        end
+                        
+                    elseif type(value) == 'boolean' then
+                        value = getXMLBool(xmlFile, xmlValueKey) or false
+                        value_string = tostring(value)
+                    end
+                    
+                    BirdSettings.settings[id] = value
+                    return value_string
+                end
+            end
+            return "MISSING"
+        end
+        
+        print("[FieldGulls] SETTINGS")
+        for _, id in pairs(BirdSettings.menuItems) do
+            local valueString = getXmlValue(id)
+            print("  " .. id .. ": " .. valueString)
+        end
+        
+        delete(xmlFile)
+    end
+end
+
 BirdSettingsControls = {}
 function BirdSettingsControls.onMenuOptionChanged(self, state, menuOption)
     local id = menuOption.id
@@ -66,6 +148,9 @@ function BirdSettingsControls.onMenuOptionChanged(self, state, menuOption)
                 end
             end
         end
+        
+        -- Save settings to disk
+        BirdSettings.writeSettings()
     end
 end
 
@@ -185,5 +270,9 @@ end)
 
 -- Initialize settings menu when mission loads
 Mission00.load = Utils.appendedFunction(Mission00.load, function()
+    -- Load settings from disk first
+    BirdSettings.readSettings()
+    
+    -- Then add menu controls
     BirdSettings.addSettingsToMenu()
 end)
