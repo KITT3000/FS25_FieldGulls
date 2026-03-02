@@ -25,20 +25,9 @@ function CultivatorExtension:processCultivatorArea(superFunc, workArea, dt)
         -- Get affected grid cells
         local cells = GridFeedingZones.getAffectedGridCells(sx, sz, wx, wz, hx, hz)
 
-        -- Get tool length (defaults to 2m if not available)
-        local toolLength = 2.0
-        if self.size and self.size.length then
-            toolLength = self.size.length
-        elseif self.sizeLength then
-            toolLength = self.sizeLength
-        end
-
-        -- Get vehicle speed
-        local kmhSpeed = self:getLastSpeed()
-
-        -- Add cells to global grid system with tool length and speed for delay calculation
+        -- Add cells to global grid system
         for _, cell in ipairs(cells) do
-            g_gridFeedingZones:addCell(cell.gridX, cell.gridZ, toolLength, kmhSpeed)
+            g_gridFeedingZones:addCell(cell.gridX, cell.gridZ)
         end
     end
 

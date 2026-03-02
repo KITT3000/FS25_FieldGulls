@@ -260,7 +260,7 @@ function BirdStateMachine:enterFeedingUpState()
 
     -- Set takeoff/fly up animation
     if self.bird.setAnimationByName then
-        self.bird:setAnimationByName(SimpleBirdDirect.ANIM_FLY_UP)
+        self.bird:setAnimationByName(SimpleBirdDirect.ANIM_FLY)
     end
 
     -- Fly upward with some horizontal drift

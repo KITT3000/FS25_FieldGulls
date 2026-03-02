@@ -14,10 +14,7 @@ GridFeedingZones.RECENTLY_EATEN_EXPIRE_TIME = 60000 -- Recently eaten cells expi
 GridFeedingZones.MAX_RECENT_CELLS = 40    -- Max recent cells to consider for priority feeding
 
 -- Pending cell buffer configuration (prevents birds landing where tractor just was)
--- Delay = (PENDING_BASE_TIME + toolLength * PENDING_LENGTH_MULTIPLIER) * sqrt(12 / speed)
--- Square root dampening reduces speed impact: At 12 km/h, factor = 1.0 (no adjustment)
-GridFeedingZones.PENDING_BASE_TIME = 150     -- Base delay before cells become available (ms)
-GridFeedingZones.PENDING_LENGTH_MULTIPLIER = 100 -- Additional ms per meter of tool length
+GridFeedingZones.PENDING_DELAY = 50 -- Delay before cells become available (ms)
 
 ---
 -- Convert world position to grid coordinates
@@ -78,39 +75,28 @@ end
 ---
 -- Add a cell to the feeding zones (via pending buffer)
 -- @param x, z: World position
--- @param toolLength: Length of the implement in meters (optional, defaults to 2m)
--- @param speed: Vehicle speed in km/h (optional, defaults to 12 km/h)
 ---
-function GridFeedingZones:addCell(x, z, toolLength, speed)
+function GridFeedingZones:addCell(x, z)
     local gridX, gridZ = GridFeedingZones.getGridPosition(x, z)
     local key = GridFeedingZones.getGridKey(gridX, gridZ)
 
-    -- Check if cell already exists in active cells or pending
+    -- Check if cell already exists in active cells
     if self.cells[key] then
-        -- Cell already tracked, don't update timestamp (preserve original expiration)
-        return
+        -- Cell was plowed again - remove from active and re-add to pending buffer for full cycle
+        self:removeCell(gridX, gridZ)
     end
 
-    -- Check if already in pending buffer
+    local delay = GridFeedingZones.PENDING_DELAY
+
+    -- Check if already in pending buffer - if so, reset the release time
     for _, pendingCell in ipairs(self.pendingFeedingCells) do
         if pendingCell.gridX == gridX and pendingCell.gridZ == gridZ then
-            return -- Already pending
+            -- Reset release time to start buffer delay from scratch
+            pendingCell.timestamp = g_time
+            pendingCell.releaseTime = g_time + delay
+            return
         end
     end
-
-    -- Calculate delay based on tool length
-    toolLength = toolLength or 2.0 -- Default 2m if not provided
-    speed = speed or 12.0 -- Default 12 km/h if not provided
-    
-    -- Base delay from tool length
-    local baseDelay = GridFeedingZones.PENDING_BASE_TIME + (toolLength * GridFeedingZones.PENDING_LENGTH_MULTIPLIER)
-    
-    -- Apply speed factor: slower = longer delay, faster = shorter delay
-    -- Benchmark at 12 km/h (factor = 1.0 at 12 km/h)
-    -- Use square root to reduce impact: fast speeds get less reduction, slow speeds get less increase
-    local speedRatio = 12.0 / math.max(speed, 1.0) -- Prevent division by zero
-    local speedFactor = math.pow(speedRatio, 0.5) -- Square root dampening reduces impact
-    local delay = baseDelay * speedFactor
 
     -- Add to pending buffer
     table.insert(self.pendingFeedingCells, {
