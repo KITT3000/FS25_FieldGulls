@@ -9,6 +9,7 @@ local ToolBirdFlockManager_mt = Class(ToolBirdFlockManager)
 
 ToolBirdFlockManager.MAX_BIRDS = 80                  -- Maximum number of birds around the tool
 ToolBirdFlockManager.SPAWN_INTERVAL = 500            -- Spawn one bird every 500ms (instead of all at once)
+ToolBirdFlockManager.DESPAWN_INTERVAL = 250          -- Despawn one bird every 250ms
 ToolBirdFlockManager.SPAWN_DISTANCE_BEHIND = 50      -- Birds spawn 50m behind tractor
 ToolBirdFlockManager.SPAWN_HEIGHT_ABOVE_TERRAIN = 40 -- Birds spawn 40m above terrain
 ToolBirdFlockManager.DESPAWN_DELAY = 15000           -- Wait time before birds start flying away (milliseconds)
@@ -198,9 +199,9 @@ function ToolBirdFlockManager:update(dt)
         end
     end
 
-    -- Gradually despawn birds over time (one every SPAWN_INTERVAL)
+    -- Gradually despawn birds over time (one every DESPAWN_INTERVAL)
     if self.isDespawning and #self.spawnedBirds > 0 then
-        if g_time - self.lastDespawnTime >= ToolBirdFlockManager.SPAWN_INTERVAL then
+        if g_time - self.lastDespawnTime >= ToolBirdFlockManager.DESPAWN_INTERVAL then
             self:despawnOneBird()
             self.lastDespawnTime = g_time
         end

@@ -7,8 +7,11 @@ GridFeedingZones = {}
 local GridFeedingZones_mt = Class(GridFeedingZones)
 
 -- Configuration
-GridFeedingZones.GRID_SIZE = 1            -- 1m x 1m grid cells
+GridFeedingZones.GRID_SIZE = 0.5          -- 0.5m x 0.5m grid cells
 GridFeedingZones.CELL_EXPIRE_TIME = 30000 -- Cells expire after 30 seconds (ms)
+GridFeedingZones.BUFFER_TIME = 10000      -- Time before moving to recently eaten (ms)
+GridFeedingZones.RECENTLY_EATEN_EXPIRE_TIME = 60000 -- Recently eaten cells expire after 60 seconds (ms)
+GridFeedingZones.MAX_RECENT_CELLS = 40    -- Max recent cells to consider for priority feeding
 
 ---
 -- Convert world position to grid coordinates
@@ -50,6 +53,14 @@ function GridFeedingZones.new()
     -- Ordered list of cells by timestamp (newest first)
     -- Each entry is a reference to the cell in self.cells
     self.cellsByTimestamp = {}
+
+    -- Buffered cells waiting to move to RECENTLY_EATEN_CELLS
+    -- Array of { gridX, gridZ, bufferTime }
+    self.bufferedCells = {}
+
+    -- Recently eaten cells that can be reused when no fresh cells available
+    -- Array of { gridX, gridZ, timestamp }
+    self.recentlyEatenCells = {}
 
     return self
 end
@@ -189,7 +200,7 @@ function GridFeedingZones:requestFeedingTarget(birdX, birdZ, vehicleX, vehicleZ,
     -- 25% chance: Pick weighted by inverse distance
     if math.random() < 0.75 then
         local validCells = {}
-        for i = 1, math.min(20, #self.cellsByTimestamp) do
+        for i = 1, math.min(GridFeedingZones.MAX_RECENT_CELLS, #self.cellsByTimestamp) do
             local cell = self.cellsByTimestamp[i]
             local distFromTool = MathUtil.vector2Length(cell.gridX - vehicleX, cell.gridZ - vehicleZ)
 
@@ -258,6 +269,27 @@ function GridFeedingZones:requestFeedingTarget(birdX, birdZ, vehicleX, vehicleZ,
 
     -- Safety check: make sure we have a valid cell
     if not selectedCell then
+        -- No valid fresh cells - try RECENTLY_EATEN_CELLS as fallback
+        if #self.recentlyEatenCells > 0 then
+            -- Pick randomly from recently eaten cells
+            local randomIndex = math.random(1, #self.recentlyEatenCells)
+            local recentCell = self.recentlyEatenCells[randomIndex]
+
+            -- Remove from recently eaten cells
+            table.remove(self.recentlyEatenCells, randomIndex)
+
+            -- Add back to buffer to cycle through the system again
+            table.insert(self.bufferedCells, {
+                gridX = recentCell.gridX,
+                gridZ = recentCell.gridZ,
+                bufferTime = g_time
+            })
+
+            -- Get random position within the cell
+            local targetX, targetZ = GridFeedingZones.getRandomPositionInCell(recentCell.gridX, recentCell.gridZ)
+            return targetX, targetZ
+        end
+
         return nil, nil
     end
 
@@ -266,6 +298,13 @@ function GridFeedingZones:requestFeedingTarget(birdX, birdZ, vehicleX, vehicleZ,
 
     -- Remove the selected cell
     self:removeCell(selectedCell.gridX, selectedCell.gridZ)
+
+    -- Buffer the cell for 10 seconds before moving to RECENTLY_EATEN_CELLS
+    table.insert(self.bufferedCells, {
+        gridX = selectedCell.gridX,
+        gridZ = selectedCell.gridZ,
+        bufferTime = g_time
+    })
 
     return targetX, targetZ
 end
@@ -318,6 +357,42 @@ function GridFeedingZones:update(dt)
         self:removeExpiredCells()
         self.lastCleanupTime = 0
     end
+
+    -- Process buffered cells: move to RECENTLY_EATEN_CELLS after BUFFER_TIME
+    local currentTime = g_time
+    local toMove = {}
+
+    for i, bufferedCell in ipairs(self.bufferedCells) do
+        if currentTime - bufferedCell.bufferTime >= GridFeedingZones.BUFFER_TIME then
+            -- Move to recently eaten cells with timestamp
+            table.insert(self.recentlyEatenCells, {
+                gridX = bufferedCell.gridX,
+                gridZ = bufferedCell.gridZ,
+                timestamp = currentTime
+            })
+            table.insert(toMove, i)
+        end
+    end
+
+    -- Remove processed buffered cells (iterate backwards to avoid index issues)
+    for i = #toMove, 1, -1 do
+        table.remove(self.bufferedCells, toMove[i])
+    end
+    
+    -- Clean up expired recently eaten cells (unused for 60 seconds)
+    local expireTime = currentTime - GridFeedingZones.RECENTLY_EATEN_EXPIRE_TIME
+    local toRemove = {}
+    
+    for i, recentCell in ipairs(self.recentlyEatenCells) do
+        if recentCell.timestamp < expireTime then
+            table.insert(toRemove, i)
+        end
+    end
+    
+    -- Remove expired recently eaten cells (iterate backwards to avoid index issues)
+    for i = #toRemove, 1, -1 do
+        table.remove(self.recentlyEatenCells, toRemove[i])
+    end
 end
 
 ---
@@ -338,4 +413,6 @@ end
 function GridFeedingZones:clear()
     self.cells = {}
     self.spatialIndex = {}
+    self.bufferedCells = {}
+    self.recentlyEatenCells = {}
 end
