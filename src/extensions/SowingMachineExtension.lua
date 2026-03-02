@@ -40,9 +40,20 @@ function SowingMachineExtension:onEndWorkAreaProcessing(superFunc, dt, hasProces
                     -- Get affected grid cells
                     local cells = GridFeedingZones.getAffectedGridCells(sx, sz, wx, wz, hx, hz)
 
-                    -- Add cells to global grid system
+                    -- Get tool length (defaults to 2m if not available)
+                    local toolLength = 2.0
+                    if self.size and self.size.length then
+                        toolLength = self.size.length
+                    elseif self.sizeLength then
+                        toolLength = self.sizeLength
+                    end
+
+                    -- Get vehicle speed
+                    local kmhSpeed = self:getLastSpeed()
+
+                    -- Add cells to global grid system with tool length and speed for delay calculation
                     for _, cell in ipairs(cells) do
-                        g_gridFeedingZones:addCell(cell.gridX, cell.gridZ)
+                        g_gridFeedingZones:addCell(cell.gridX, cell.gridZ, toolLength, kmhSpeed)
                     end
                 end
             end

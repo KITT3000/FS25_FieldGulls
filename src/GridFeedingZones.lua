@@ -13,6 +13,12 @@ GridFeedingZones.BUFFER_TIME = 10000      -- Time before moving to recently eate
 GridFeedingZones.RECENTLY_EATEN_EXPIRE_TIME = 60000 -- Recently eaten cells expire after 60 seconds (ms)
 GridFeedingZones.MAX_RECENT_CELLS = 40    -- Max recent cells to consider for priority feeding
 
+-- Pending cell buffer configuration (prevents birds landing where tractor just was)
+-- Delay = (PENDING_BASE_TIME + toolLength * PENDING_LENGTH_MULTIPLIER) * sqrt(12 / speed)
+-- Square root dampening reduces speed impact: At 12 km/h, factor = 1.0 (no adjustment)
+GridFeedingZones.PENDING_BASE_TIME = 150     -- Base delay before cells become available (ms)
+GridFeedingZones.PENDING_LENGTH_MULTIPLIER = 100 -- Additional ms per meter of tool length
+
 ---
 -- Convert world position to grid coordinates
 -- @param x: World X position
@@ -62,20 +68,68 @@ function GridFeedingZones.new()
     -- Array of { gridX, gridZ, timestamp }
     self.recentlyEatenCells = {}
 
+    -- Pending feeding cells waiting for tractor to move away
+    -- Array of { gridX, gridZ, timestamp, releaseTime }
+    self.pendingFeedingCells = {}
+
     return self
 end
 
 ---
--- Add a cell to the feeding zones
+-- Add a cell to the feeding zones (via pending buffer)
 -- @param x, z: World position
+-- @param toolLength: Length of the implement in meters (optional, defaults to 2m)
+-- @param speed: Vehicle speed in km/h (optional, defaults to 12 km/h)
 ---
-function GridFeedingZones:addCell(x, z)
+function GridFeedingZones:addCell(x, z, toolLength, speed)
     local gridX, gridZ = GridFeedingZones.getGridPosition(x, z)
+    local key = GridFeedingZones.getGridKey(gridX, gridZ)
+
+    -- Check if cell already exists in active cells or pending
+    if self.cells[key] then
+        -- Cell already tracked, don't update timestamp (preserve original expiration)
+        return
+    end
+
+    -- Check if already in pending buffer
+    for _, pendingCell in ipairs(self.pendingFeedingCells) do
+        if pendingCell.gridX == gridX and pendingCell.gridZ == gridZ then
+            return -- Already pending
+        end
+    end
+
+    -- Calculate delay based on tool length
+    toolLength = toolLength or 2.0 -- Default 2m if not provided
+    speed = speed or 12.0 -- Default 12 km/h if not provided
+    
+    -- Base delay from tool length
+    local baseDelay = GridFeedingZones.PENDING_BASE_TIME + (toolLength * GridFeedingZones.PENDING_LENGTH_MULTIPLIER)
+    
+    -- Apply speed factor: slower = longer delay, faster = shorter delay
+    -- Benchmark at 12 km/h (factor = 1.0 at 12 km/h)
+    -- Use square root to reduce impact: fast speeds get less reduction, slow speeds get less increase
+    local speedRatio = 12.0 / math.max(speed, 1.0) -- Prevent division by zero
+    local speedFactor = math.pow(speedRatio, 0.5) -- Square root dampening reduces impact
+    local delay = baseDelay * speedFactor
+
+    -- Add to pending buffer
+    table.insert(self.pendingFeedingCells, {
+        gridX = gridX,
+        gridZ = gridZ,
+        timestamp = g_time,
+        releaseTime = g_time + delay
+    })
+end
+
+---
+-- Internal: Add a cell directly to active feeding zones (called after pending delay)
+-- @param gridX, gridZ: Grid position
+---
+function GridFeedingZones:addCellImmediate(gridX, gridZ)
     local key = GridFeedingZones.getGridKey(gridX, gridZ)
 
     -- Check if cell already exists
     if self.cells[key] then
-        -- Cell already tracked, don't update timestamp (preserve original expiration)
         return
     end
 
@@ -196,60 +250,34 @@ function GridFeedingZones:requestFeedingTarget(birdX, birdZ, vehicleX, vehicleZ,
     end
 
     local selectedCell = nil
-    
-    -- Scale exclusion zone with working width: 10% of width, clamped between 0.5m and 2.0m
-    -- This prevents birds landing on the tractor itself without excluding most of a wide implement
-    local MIN_DISTANCE_FROM_TOOL = 0.5 -- Default fallback
-    if workingWidth and workingWidth > 0 then
-        MIN_DISTANCE_FROM_TOOL = math.max(0.5, math.min(2.0, workingWidth * 0.10))
-    end
 
     -- 75% chance: Pick randomly from top most recent cells
     -- 25% chance: Pick weighted by inverse distance
     if math.random() < 0.75 then
-        local validCells = {}
-        for i = 1, math.min(GridFeedingZones.MAX_RECENT_CELLS, #self.cellsByTimestamp) do
-            local cell = self.cellsByTimestamp[i]
-            local distFromTool = MathUtil.vector2Length(cell.gridX - vehicleX, cell.gridZ - vehicleZ)
-
-            if distFromTool >= MIN_DISTANCE_FROM_TOOL then
-                table.insert(validCells, cell)
-            end
+        -- Pick randomly from recent cells (up to first 10)
+        local endIndex = math.min(10, math.min(GridFeedingZones.MAX_RECENT_CELLS, #self.cellsByTimestamp))
+        if endIndex > 0 then
+            local randomIndex = math.random(1, endIndex)
+            selectedCell = self.cellsByTimestamp[randomIndex]
         end
-
-        -- Check if we have any valid cells
-        if #validCells == 0 then
-            return nil, nil
-        end
-
-        -- Pick randomly from valid cells (up to first 10)
-        local endIndex = math.min(10, #validCells)
-        local randomIndex = math.random(1, endIndex)
-        selectedCell = validCells[randomIndex]
     else
         -- Distance-weighted strategy: favor closer cells (to bird)
-        -- Build list of valid cells (excluding those within 2m of tool)
         local validCells = {}
         local weights = {}
         local totalWeight = 0
 
-        -- Consider recent cells, excluding those too close to the tool
+        -- Consider all cells, weighted by distance to bird
         for i = 1, #self.cellsByTimestamp do
             local cell = self.cellsByTimestamp[i]
 
-            -- Check distance from tool
-            local distFromTool = MathUtil.vector2Length(cell.gridX - vehicleX, cell.gridZ - vehicleZ)
+            -- Calculate weight based on distance to bird
+            local distance = MathUtil.vector2Length(cell.gridX - birdX, cell.gridZ - birdZ)
 
-            if distFromTool >= MIN_DISTANCE_FROM_TOOL then
-                -- Calculate weight based on distance to bird
-                local distance = MathUtil.vector2Length(cell.gridX - birdX, cell.gridZ - birdZ)
-
-                -- Inverse distance weight (closer to bird = higher weight)
-                local weight = 1.0 / (distance + 1.0)
-                table.insert(validCells, cell)
-                table.insert(weights, weight)
-                totalWeight = totalWeight + weight
-            end
+            -- Inverse distance weight (closer to bird = higher weight)
+            local weight = 1.0 / (distance + 1.0)
+            table.insert(validCells, cell)
+            table.insert(weights, weight)
+            totalWeight = totalWeight + weight
         end
 
         -- Check if we have any valid cells
@@ -389,6 +417,21 @@ function GridFeedingZones:update(dt)
     for i = #toMove, 1, -1 do
         table.remove(self.bufferedCells, toMove[i])
     end
+
+    -- Process pending feeding cells: move to active cells after delay
+    local toActivate = {}
+    for i, pendingCell in ipairs(self.pendingFeedingCells) do
+        if currentTime >= pendingCell.releaseTime then
+            -- Time to activate this cell
+            self:addCellImmediate(pendingCell.gridX, pendingCell.gridZ)
+            table.insert(toActivate, i)
+        end
+    end
+
+    -- Remove activated cells from pending (iterate backwards)
+    for i = #toActivate, 1, -1 do
+        table.remove(self.pendingFeedingCells, toActivate[i])
+    end
     
     -- Clean up expired recently eaten cells (unused for 60 seconds)
     local expireTime = currentTime - GridFeedingZones.RECENTLY_EATEN_EXPIRE_TIME
@@ -426,4 +469,5 @@ function GridFeedingZones:clear()
     self.spatialIndex = {}
     self.bufferedCells = {}
     self.recentlyEatenCells = {}
+    self.pendingFeedingCells = {}
 end
