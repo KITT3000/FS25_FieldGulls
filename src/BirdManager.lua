@@ -1,17 +1,33 @@
 ---
 -- BirdManager
--- Global manager for all bird hotspots that runs independent of vehicle state
--- This ensures birds continue to update even when vehicles are optimized/inactive
+-- Global manager for all bird flock managers that runs independent of vehicle state
 ---
 
 BirdManager = {}
-BirdManager.activeHotspots = {}
+BirdManager.activeFlockManagers = {}
 
 ---
 -- Initialize the bird manager
 ---
 function BirdManager:loadMap()
-    print("[BirdManager] Manager initialized")
+    local birdConfig = BirdConfig.loadConfig()
+    if birdConfig and birdConfig.filename then
+        g_i3DManager:loadSharedI3DFileAsync(
+            birdConfig.filename,
+            false, -- callOnCreate
+            false, -- addToPhysics
+            function(i3dNode, failedReason, args)
+                if failedReason ~= 0 then
+                    print("[BirdManager] Warning: Failed to preload bird i3d model")
+                end
+            end,
+            nil,
+            nil
+        )
+    end
+
+    -- Initialize global grid feeding zones system
+    g_gridFeedingZones = GridFeedingZones.new()
 end
 
 ---
@@ -19,32 +35,35 @@ end
 -- @param dt: Delta time in milliseconds
 ---
 function BirdManager:update(dt)
-    -- Update all registered hotspots
-    for vehicle, hotspot in pairs(self.activeHotspots) do
-        if hotspot and hotspot.update then
-            hotspot:update(dt)
+    if g_gridFeedingZones then
+        g_gridFeedingZones:update(dt)
+    end
+
+    for vehicle, flockManager in pairs(self.activeFlockManagers) do
+        if flockManager and flockManager.update then
+            flockManager:update(dt)
         end
     end
 end
 
 ---
--- Register a hotspot for continuous updates
--- @param vehicle: The vehicle this hotspot belongs to
--- @param hotspot: The hotspot instance
+-- Register a flock manager for continuous updates
+-- @param vehicle: The vehicle this flock manager belongs to
+-- @param flockManager: The flock manager instance
 ---
-function BirdManager:registerHotspot(vehicle, hotspot)
-    if vehicle and hotspot then
-        self.activeHotspots[vehicle] = hotspot
+function BirdManager:registerFlockManager(vehicle, flockManager)
+    if vehicle and flockManager then
+        self.activeFlockManagers[vehicle] = flockManager
     end
 end
 
 ---
--- Unregister a hotspot (called when vehicle is deleted or hotspot deactivated)
--- @param vehicle: The vehicle that owned the hotspot
+-- Unregister a flock manager (called when vehicle is deleted or flock deactivated)
+-- @param vehicle: The vehicle that owned the flock manager
 ---
-function BirdManager:unregisterHotspot(vehicle)
+function BirdManager:unregisterFlockManager(vehicle)
     if vehicle then
-        self.activeHotspots[vehicle] = nil
+        self.activeFlockManagers[vehicle] = nil
     end
 end
 
@@ -52,8 +71,12 @@ end
 -- Cleanup on map unload
 ---
 function BirdManager:deleteMap()
-    self.activeHotspots = {}
+    self.activeFlockManagers = {}
+
+    if g_gridFeedingZones then
+        g_gridFeedingZones:clear()
+        g_gridFeedingZones = nil
+    end
 end
 
--- Register with the mod event system so update() is called every frame
 addModEventListener(BirdManager)
