@@ -298,10 +298,8 @@ function ToolBirdFlockManager:spawnOneBird()
     -- Calculate perpendicular angle (90 degrees to movement direction)
     local perpAngle = movementDirection + math.pi / 2
 
-    -- Spread birds based on actual working width (with 2.5x multiplier for natural spread)
-    -- This ensures birds spawn across the full working width, not just one work area
-    local spreadWidth = self.workingWidth * 2.5
-    local lateralOffset = (i / ToolBirdFlockManager.MAX_BIRDS - 0.5) * spreadWidth
+    -- Spread birds randomly across a fixed 50-meter width for natural flock appearance
+    local lateralOffset = (math.random() - 0.5) * 50.0
     local longitudinalOffset = ToolBirdFlockManager.SPAWN_DISTANCE_BEHIND + (math.random() - 0.5) * 5 -- 50m ±2.5m
 
     local spawnX = vehicleX + math.sin(perpAngle) * lateralOffset -

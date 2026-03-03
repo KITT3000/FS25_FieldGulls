@@ -187,7 +187,24 @@ end
 function BirdStateMachine:updateApproachingPlowState(dt)
     -- Check if bird reached target altitude at work area
     if not self.bird:getIsMoving() then
-        -- Always transition to searching state to handle target selection and diving
+        -- Try to get a feeding target immediately instead of going to SEARCHING first
+        if g_gridFeedingZones and g_gridFeedingZones:getCellCount() > 0 then
+            local currentX, currentY, currentZ = self.bird:getCurrentPosition()
+            local isMoving = self:isVehicleMoving()
+            local vehicleX, vehicleY, vehicleZ = getWorldTranslation(self.bird.manager.vehicle.rootNode)
+            local workingWidth = self.bird.manager.workingWidth
+            
+            -- Try to get a valid target (this will filter by distance from tool)
+            local targetX, targetZ = g_gridFeedingZones:requestFeedingTarget(currentX, currentZ, vehicleX, vehicleZ, isMoving, workingWidth)
+            
+            if targetX and targetZ then
+                -- Valid target available - dive immediately
+                self:setState(BirdStateMachine.STATE_DIVING)
+                return
+            end
+        end
+        
+        -- No valid target found - enter searching mode
         self:setState(BirdStateMachine.STATE_SEARCHING)
     end
 end
