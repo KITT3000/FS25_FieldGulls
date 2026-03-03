@@ -22,8 +22,8 @@
     <behavior groundIdleTimeMin="4.0" groundIdleTimeMax="6.0" />
 
     <sounds>
-        <sound name="ambient" volume="1.5">
-            <sample filename="seagull/sounds/1.ogg" />
-        </sound>
+        <ambient file="seagull/sounds/1.ogg" innerRadius="20" outerRadius="80" loops="0">
+            <volume indoor="0.3" outdoor="2.5" />
+        </ambient>
     </sounds>
 </species>

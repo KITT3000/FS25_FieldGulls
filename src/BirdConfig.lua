@@ -75,16 +75,10 @@ function BirdConfig.loadConfig()
         BirdConfig.config = BirdConfig.loadAttributesFromXML(xmlFile, "species")
 
         if BirdConfig.config then
-            local baseDirectory = BirdConfig.dir
-            BirdConfig.config.soundGroups = BirdConfig.loadSoundGroupsFromXML(
-                xmlFile,
-                baseDirectory
-            )
-
-            local soundGroupCount = 0
-            for _ in pairs(BirdConfig.config.soundGroups or {}) do
-                soundGroupCount = soundGroupCount + 1
-            end
+            -- Store XML filename and base directory for sound loading
+            -- Sounds will be loaded by g_soundManager:loadSampleFromXML()
+            BirdConfig.config.xmlFilename = xmlFilename
+            BirdConfig.config.baseDirectory = BirdConfig.dir
         end
 
         delete(xmlFile)
@@ -132,7 +126,11 @@ function BirdConfig.loadSoundGroupsFromXML(xmlFile, baseDirectory)
                 name = soundGroupName,
                 cooldown = getXMLFloat(xmlFile, soundKey .. "#cooldown") or 0,
                 chance = getXMLFloat(xmlFile, soundKey .. "#chance") or 1.0,
-                volume = getXMLFloat(xmlFile, soundKey .. "#volume") or 1.0, -- Default to 1.0 if not specified
+                volumeIndoor = getXMLFloat(xmlFile, soundKey .. ".volume#indoor") or 1.0,
+                volumeOutdoor = getXMLFloat(xmlFile, soundKey .. ".volume#outdoor") or 1.0,
+                innerRadius = getXMLFloat(xmlFile, soundKey .. "#innerRadius") or 20.0,
+                outerRadius = getXMLFloat(xmlFile, soundKey .. "#outerRadius") or 80.0,
+                loops = getXMLInt(xmlFile, soundKey .. "#loops") or 0,
                 fileNames = {}                                               -- Store file paths, not samples
             }
 

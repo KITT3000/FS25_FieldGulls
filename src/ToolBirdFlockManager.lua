@@ -11,7 +11,7 @@ ToolBirdFlockManager.MAX_BIRDS = 80                  -- Maximum number of birds 
 ToolBirdFlockManager.SPAWN_INTERVAL = 500            -- Spawn one bird every 500ms (instead of all at once)
 ToolBirdFlockManager.DESPAWN_INTERVAL = 250          -- Despawn one bird every 250ms
 ToolBirdFlockManager.SPAWN_DISTANCE_BEHIND = 50      -- Birds spawn 50m behind tractor
-ToolBirdFlockManager.SPAWN_HEIGHT_ABOVE_TERRAIN = 40 -- Birds spawn 40m above terrain
+ToolBirdFlockManager.SPAWN_HEIGHT_ABOVE_TERRAIN = 30 -- Birds spawn 30m above terrain
 ToolBirdFlockManager.DESPAWN_DELAY = 15000           -- Wait time before birds start flying away (milliseconds)
 ToolBirdFlockManager.DESPAWN_DURATION = 10000        -- How long birds fly away before being deleted (milliseconds)
 
@@ -95,13 +95,11 @@ function ToolBirdFlockManager.new(vehicle, workAreaType)
     self.despawnTimerActive = false                                                     -- Whether the despawn timer is counting down
     self.workingWidth = ToolBirdFlockManager.getToolWorkingWidth(vehicle, workAreaType) -- Cache the working width
 
-    -- Sound management (3D positional audio)
-    self.soundNode = nil      -- The audio source node (3D sound)
-    self.soundSample = nil    -- The sample ID from the audio source
-    self.soundTransform = nil -- Transform node to position the sound
-    self.soundVolume = 1.0    -- Volume level (loaded from XML)
-    self.soundStartTime = nil -- When spawning started (for 8s delay)
-    self.soundStarted = false -- Track if sound has started
+    -- Sound management (using g_soundManager for automatic indoor/outdoor handling)
+    self.soundSample = nil          -- The sample loaded by g_soundManager
+    self.soundTransform = nil       -- Transform node to position the sound  
+    self.soundStartTime = nil       -- When spawning started (for 8s delay)
+    self.soundStarted = false       -- Track if sound has started
 
     if BirdManager then
         BirdManager:registerFlockManager(vehicle, self)
@@ -383,43 +381,30 @@ function ToolBirdFlockManager:despawnOneBird()
 end
 
 ---
--- Initialize the shared looping sound sample (3D positional audio)
+-- Initialize the shared looping sound sample using g_soundManager
+-- This provides automatic indoor/outdoor volume handling
 ---
 function ToolBirdFlockManager:initializeSound()
-    -- Load bird config to get sound file path
+    -- Clean up any existing sound
+    if self.soundSample then
+        g_soundManager:deleteSample(self.soundSample)
+        self.soundSample = nil
+    end
+
+    -- Load bird config
     local config = BirdConfig.getConfig()
-    if not config or not config.soundGroups then
+    if not config or not config.xmlFilename then
         return
     end
 
-    -- Get the first sound group (should only be one now)
-    local soundFilePath = nil
-    local baseVolume = 1.0 -- Default volume from config
-    for groupName, soundGroup in pairs(config.soundGroups) do
-        if soundGroup.fileNames and #soundGroup.fileNames > 0 then
-            soundFilePath = soundGroup.fileNames[1]
-            baseVolume = soundGroup.volume or 1.0
-            break
-        end
-    end
-
-    if not soundFilePath then
-        return
-    end
-
-    -- Get user's volume preference from settings
+    -- Check user volume setting
     local userVolume = 1.0
     if BirdSettings and BirdSettings.settings then
         userVolume = BirdSettings.settings.birdSoundVolume or 1.0
     end
 
-    -- Store both volumes for later use
-    self.baseVolume = baseVolume
-    self.userVolume = userVolume
-    self.soundVolume = baseVolume * userVolume
-
-    -- Don't create sound if user has it disabled (volume = 0)
-    if self.soundVolume == 0 then
+    -- Don't create sound if user has it disabled
+    if userVolume == 0 then
         return
     end
 
@@ -430,36 +415,37 @@ function ToolBirdFlockManager:initializeSound()
     end
 
     -- Create a transform node to position the sound in the world
-    self.soundTransform = createTransformGroup("birdFlockSoundEmitter")
-    setTranslation(self.soundTransform, vehicleX, vehicleY, vehicleZ)
-    link(getRootNode(), self.soundTransform)
+    if not self.soundTransform or self.soundTransform == 0 then
+        self.soundTransform = createTransformGroup("birdFlockSoundEmitter")
+        setTranslation(self.soundTransform, vehicleX, vehicleY, vehicleZ)
+        link(getRootNode(), self.soundTransform)
+    end
 
-    -- Create 3D audio source with spatial audio properties
-    local sampleName = "birdFlock_" .. tostring(self):gsub("table: ", "")
-    local outerRadius = 80.0 -- Sound audible up to 80m away
-    local innerRadius = 20.0 -- Full volume within 20m
-    local loops = 0          -- 0 = infinite loop
+    -- Load the XML file to pass to g_soundManager
+    local xmlFile = loadXMLFile("BirdSpeciesConfig", config.xmlFilename)
+    if not xmlFile or xmlFile == 0 then
+        return
+    end
 
-    self.soundNode = createAudioSource(sampleName, soundFilePath, outerRadius, innerRadius, self.soundVolume, loops)
+    -- Load sample using g_soundManager (provides automatic indoor/outdoor handling)
+    self.soundSample = g_soundManager:loadSampleFromXML(
+        xmlFile,
+        "species.sounds",
+        "ambient",
+        config.baseDirectory,
+        self.soundTransform,  -- Link node for 3D positioning
+        0,                    -- loops: 0 = infinite
+        AudioGroup.ENVIRONMENT,
+        nil,                  -- i3dMappings
+        self,                 -- modifierTargetObject
+        true                  -- requiresFile
+    )
 
-    if self.soundNode and self.soundNode ~= 0 then
-        self.soundSample = getAudioSourceSample(self.soundNode)
+    delete(xmlFile)
 
-        if self.soundSample and self.soundSample ~= 0 then
-            setSampleGroup(self.soundSample, AudioGroup.ENVIRONMENT)
-            setAudioSourceAutoPlay(self.soundNode, false)
-
-            link(self.soundTransform, self.soundNode)
-        else
-            delete(self.soundNode)
-            delete(self.soundTransform)
-            self.soundNode = nil
-            self.soundTransform = nil
-            self.soundSample = nil
-        end
-    else
-        delete(self.soundTransform)
-        self.soundTransform = nil
+    -- Apply user volume scale
+    if self.soundSample then
+        g_soundManager:setSampleVolumeScale(self.soundSample, userVolume)
     end
 end
 
@@ -484,19 +470,16 @@ end
 -- @param newUserVolume: New user volume setting (0.0 to 2.0)
 ---
 function ToolBirdFlockManager:updateSoundVolume(newUserVolume)
-    self.userVolume = newUserVolume
-    self.soundVolume = (self.baseVolume or 1.0) * newUserVolume
-    
-    -- If sound is disabled (volume = 0), stop it
-    if self.soundVolume == 0 then
-        if self.soundSample and self.soundSample ~= 0 and isSamplePlaying(self.soundSample) then
-            stopSample(self.soundSample, 0, 0)
+    if newUserVolume == 0 then
+        -- User disabled sound
+        if self.soundSample and g_soundManager:getIsSamplePlaying(self.soundSample) then
+            g_soundManager:stopSample(self.soundSample)
         end
         return
     end
     
     -- If sound was never initialized (because volume was 0), initialize it now
-    if not self.soundSample or self.soundSample == 0 then
+    if not self.soundSample then
         if self.isActive then  -- Only initialize if flock is active
             self:initializeSound()
             -- If sound should be playing (8 seconds passed since spawn start), start it
@@ -508,25 +491,23 @@ function ToolBirdFlockManager:updateSoundVolume(newUserVolume)
         return
     end
     
-    -- Update volume if sound exists and is playing
-    if isSamplePlaying(self.soundSample) then
-        setSampleVolume(self.soundSample, self.soundVolume)
-    else
-        -- If sound should be playing but isn't (because it was disabled), restart it
-        if self.soundStarted and self.soundNode and self.soundNode ~= 0 then
-            playSample(self.soundSample, 0, self.soundVolume, 0, 0, 0)
+    -- Update volume scale
+    g_soundManager:setSampleVolumeScale(self.soundSample, newUserVolume)
+    
+    -- If sound should be playing but isn't (e.g., user raised volume from 0), start it
+    if self.isActive and self.soundStarted and not g_soundManager:getIsSamplePlaying(self.soundSample) then
+        if self.soundStartTime and (g_time - self.soundStartTime) >= 8000 then
+            self:startSound()
         end
     end
 end
 
 ---
--- Start playing the looping sound (3D positional)
+-- Start playing the looping sound
 ---
 function ToolBirdFlockManager:startSound()
-    if self.soundNode and self.soundNode ~= 0 then
-        -- Play the audio source (volume is set via createAudioSource, this just triggers playback)
-        -- Note: For 3D audio sources, the volume parameter here is ignored in favor of the AudioSource's volume
-        playSample(self.soundSample, 0, self.soundVolume, 0, 0, 0)
+    if self.soundSample then
+        g_soundManager:playSample(self.soundSample)
     end
 end
 
@@ -534,15 +515,10 @@ end
 -- Stop the looping sound and cleanup
 ---
 function ToolBirdFlockManager:stopSound()
-    if self.soundSample and self.soundSample ~= 0 then
-        if isSamplePlaying(self.soundSample) then
-            stopSample(self.soundSample, 0, 0)
-        end
-    end
-
-    if self.soundNode and self.soundNode ~= 0 then
-        delete(self.soundNode)
-        self.soundNode = nil
+    if self.soundSample then
+        g_soundManager:stopSample(self.soundSample)
+        g_soundManager:deleteSample(self.soundSample)
+        self.soundSample = nil
     end
 
     if self.soundTransform and self.soundTransform ~= 0 then
