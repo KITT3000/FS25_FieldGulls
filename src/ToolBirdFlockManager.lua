@@ -14,6 +14,7 @@ ToolBirdFlockManager.SPAWN_DISTANCE_BEHIND = 50      -- Birds spawn 50m behind t
 ToolBirdFlockManager.SPAWN_HEIGHT_ABOVE_TERRAIN = 20 -- Birds spawn 20m above terrain
 ToolBirdFlockManager.DESPAWN_DELAY = 15000           -- Wait time before birds start flying away (milliseconds)
 ToolBirdFlockManager.DESPAWN_DURATION = 10000        -- How long birds fly away before being deleted (milliseconds)
+ToolBirdFlockManager.NO_BIRDS_TIMEOUT_MINUTES = 60   -- Minutes before birds can spawn again after chance roll fails
 
 ---
 -- Get the working width of the tool from its work areas
@@ -43,12 +44,12 @@ function ToolBirdFlockManager.getToolWorkingWidth(vehicle, workAreaType)
         if workArea.type == workAreaType and workArea.start and workArea.width and workArea.height then
             foundAnyWorkArea = true
             workAreaCount = workAreaCount + 1
-            
+
             -- Get all three corner points of the work area
             local sx, _, sz = getWorldTranslation(workArea.start)
             local wx, _, wz = getWorldTranslation(workArea.width)
             local hx, _, hz = getWorldTranslation(workArea.height)
-            
+
             -- Update bounding box
             minX = math.min(minX, sx, wx, hx)
             maxX = math.max(maxX, sx, wx, hx)
@@ -64,10 +65,10 @@ function ToolBirdFlockManager.getToolWorkingWidth(vehicle, workAreaType)
     -- Calculate total width from bounding box
     local widthX = maxX - minX
     local widthZ = maxZ - minZ
-    
+
     -- Return the maximum dimension (typically the width perpendicular to movement)
     local totalWidth = math.max(widthX, widthZ)
-    
+
     return totalWidth
 end
 
@@ -94,19 +95,49 @@ function ToolBirdFlockManager.new(vehicle, workAreaType)
     self.despawnTimer = 0                                                               -- Timer before starting gradual despawn (milliseconds)
     self.despawnTimerActive = false                                                     -- Whether the despawn timer is counting down
     self.targetNumberOfBirds = nil                                                      -- Random target (50%-100% of max), set on activation
+    self.noBirdsUntilTime = nil                                                         -- Time when birds can spawn again after chance roll failed
     self.workingWidth = ToolBirdFlockManager.getToolWorkingWidth(vehicle, workAreaType) -- Cache the working width
 
     -- Sound management (using g_soundManager for automatic indoor/outdoor handling)
-    self.soundSample = nil          -- The sample loaded by g_soundManager
-    self.soundTransform = nil       -- Transform node to position the sound  
-    self.soundStartTime = nil       -- When spawning started (for 8s delay)
-    self.soundStarted = false       -- Track if sound has started
+    self.soundSample = nil    -- The sample loaded by g_soundManager
+    self.soundTransform = nil -- Transform node to position the sound
+    self.soundStartTime = nil -- When spawning started (for 8s delay)
+    self.soundStarted = false -- Track if sound has started
 
     if BirdManager then
         BirdManager:registerFlockManager(vehicle, self)
     end
 
     return self
+end
+
+---
+-- Determine if birds should spawn and set target count
+-- Checks timeout period and rolls chance, sets new random target if successful
+-- @return true if birds should spawn, false otherwise
+---
+function ToolBirdFlockManager:determineBirdSpawn()
+    -- Check if we're in a no-birds timeout period
+    if self.noBirdsUntilTime and g_time < self.noBirdsUntilTime then
+        return false
+    end
+
+    -- Check chance of birds appearing
+    local chanceOfBirds = BirdSettings and BirdSettings.settings and BirdSettings.settings.chanceOfBirds or 0.7
+    local roll = math.random()
+
+    if roll > chanceOfBirds then
+        -- Birds don't appear - set timeout based on NO_BIRDS_TIMEOUT_MINUTES
+        self.noBirdsUntilTime = g_time + (ToolBirdFlockManager.NO_BIRDS_TIMEOUT_MINUTES * 60 * 1000)
+        return false
+    end
+
+    -- Birds will appear - pick random target count
+    self.noBirdsUntilTime = nil
+    local maxBirds = BirdSettings and BirdSettings.settings and BirdSettings.settings.maxBirds or 80
+    local minBirds = math.floor(maxBirds * 0.5)
+    self.targetNumberOfBirds = minBirds + math.random(0, maxBirds - minBirds)
+    return true
 end
 
 ---
@@ -123,9 +154,9 @@ function ToolBirdFlockManager:activate()
 
         -- Set new random target if we don't have one (e.g., after full despawn)
         if not self.targetNumberOfBirds then
-            local maxBirds = BirdSettings and BirdSettings.settings and BirdSettings.settings.maxBirds or 80
-            local minBirds = math.floor(maxBirds * 0.5)
-            self.targetNumberOfBirds = minBirds + math.random(0, maxBirds - minBirds)
+            if not self:determineBirdSpawn() then
+                return false
+            end
         end
 
         -- Keep existing birds and resume spawning to reach target
@@ -153,17 +184,18 @@ function ToolBirdFlockManager:activate()
         return false
     end
 
+    -- Set random target number of birds (50%-100% of max setting)
+    if not self.targetNumberOfBirds then
+        if not self:determineBirdSpawn() then
+            return false
+        end
+    end
+
+    -- Activation successful - set state
     self.isActive = true
     self.birdsSpawned = false
     self.numBirdsSpawned = 0
     self.lastSpawnTime = g_time
-
-    -- Set random target number of birds (50%-100% of max setting)
-    if not self.targetNumberOfBirds then
-        local maxBirds = BirdSettings and BirdSettings.settings and BirdSettings.settings.maxBirds or 80
-        local minBirds = math.floor(maxBirds * 0.5)
-        self.targetNumberOfBirds = minBirds + math.random(0, maxBirds - minBirds)
-    end
 
     if BirdManager and self.vehicle then
         BirdManager:registerFlockManager(self.vehicle, self)
@@ -387,7 +419,7 @@ function ToolBirdFlockManager:despawnOneBird()
         self.isDespawning = false
         self.birdsSpawned = false
         self.numBirdsSpawned = 0
-        self.targetNumberOfBirds = nil  -- Reset target so new random value is picked on next activation
+        self.targetNumberOfBirds = nil -- Reset target so new random value is picked on next activation
         self:stopSound()
     end
 
@@ -447,12 +479,12 @@ function ToolBirdFlockManager:initializeSound()
         "species.sounds",
         "ambient",
         config.baseDirectory,
-        self.soundTransform,  -- Link node for 3D positioning
-        0,                    -- loops: 0 = infinite
+        self.soundTransform, -- Link node for 3D positioning
+        0,                   -- loops: 0 = infinite
         AudioGroup.ENVIRONMENT,
-        nil,                  -- i3dMappings
-        self,                 -- modifierTargetObject
-        true                  -- requiresFile
+        nil,                 -- i3dMappings
+        self,                -- modifierTargetObject
+        true                 -- requiresFile
     )
 
     delete(xmlFile)
@@ -491,10 +523,10 @@ function ToolBirdFlockManager:updateSoundVolume(newUserVolume)
         end
         return
     end
-    
+
     -- If sound was never initialized (because volume was 0), initialize it now
     if not self.soundSample then
-        if self.isActive then  -- Only initialize if flock is active
+        if self.isActive then -- Only initialize if flock is active
             self:initializeSound()
             -- If sound should be playing (8 seconds passed since spawn start), start it
             if self.soundStartTime and (g_time - self.soundStartTime) >= 8000 then
@@ -504,10 +536,10 @@ function ToolBirdFlockManager:updateSoundVolume(newUserVolume)
         end
         return
     end
-    
+
     -- Update volume scale
     g_soundManager:setSampleVolumeScale(self.soundSample, newUserVolume)
-    
+
     -- If sound should be playing but isn't (e.g., user raised volume from 0), start it
     if self.isActive and self.soundStarted and not g_soundManager:getIsSamplePlaying(self.soundSample) then
         if self.soundStartTime and (g_time - self.soundStartTime) >= 8000 then

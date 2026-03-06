@@ -8,7 +8,8 @@ BirdSettings.CONTROLS = {}
 
 BirdSettings.menuItems = {
     'birdSoundVolume',
-    'maxBirds'
+    'maxBirds',
+    'chanceOfBirds'
 }
 
 -- SETTINGS DEFINITIONS
@@ -28,10 +29,18 @@ BirdSettings.SETTINGS.maxBirds = {
     ['strings'] = { "10", "20", "30", "40", "50", "60", "70", "80", "90", "100", "120", "140", "160", "180", "200" }
 }
 
+BirdSettings.SETTINGS.chanceOfBirds = {
+    ['default'] = 7,
+    ['serverOnly'] = false,
+    ['values'] = { 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0 },
+    ['strings'] = { "10%", "20%", "30%", "40%", "50%", "60%", "70%", "80%", "90%", "100%" }
+}
+
 -- Current settings (stored locally, no network sync needed)
 BirdSettings.settings = {
     birdSoundVolume = 1.0,
-    maxBirds = 80
+    maxBirds = 80,
+    chanceOfBirds = 0.7
 }
 
 function BirdSettings.getStateIndex(id, value)
