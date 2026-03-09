@@ -9,8 +9,8 @@ local GridFeedingZones_mt = Class(GridFeedingZones)
 -- Configuration
 GridFeedingZones.GRID_SIZE = 1          -- 1m x 1m grid cells
 GridFeedingZones.CELL_EXPIRE_TIME = 30000 -- Cells expire after 30 seconds (ms)
-GridFeedingZones.BUFFER_TIME = 10000      -- Time before moving to recently eaten (ms)
-GridFeedingZones.RECENTLY_EATEN_EXPIRE_TIME = 60000 -- Recently eaten cells expire after 60 seconds (ms)
+GridFeedingZones.BUFFER_TIME = 8000      -- Time before moving to recently eaten (ms)
+GridFeedingZones.RECENTLY_EATEN_EXPIRE_TIME = 80000 -- Recently eaten cells expire after 80 seconds (ms)
 GridFeedingZones.MAX_RECENT_CELLS = 40    -- Max recent cells to consider for priority feeding
 
 -- Pending cell buffer configuration (prevents birds landing where tractor just was)
@@ -29,8 +29,8 @@ function GridFeedingZones.getGridPosition(x, z)
     return gridX, gridZ
 end
 
----
--- Get grid key for storing in table
+    ---
+    -- Get grid key for storing in table
 -- @param gridX, gridZ: Grid coordinates
 -- @return string: Grid key
 ---
@@ -71,6 +71,10 @@ function GridFeedingZones.new()
 
     -- FieldState instance for checking ground type at positions
     self.fieldState = FieldState.new()
+
+    -- Occupied cells by vehicles
+    -- Structure: occupiedCells[vehicleId] = { [gridKey] = true }
+    self.occupiedCells = {}
 
     return self
 end
@@ -249,14 +253,23 @@ function GridFeedingZones:requestFeedingTarget(birdX, birdZ, vehicleX, vehicleZ,
     -- 75% chance: Pick randomly from top most recent cells
     -- 25% chance: Pick weighted by inverse distance
     if math.random() < 0.75 then
-        -- Pick randomly from recent cells (up to first 10)
+        -- Pick randomly from recent cells (up to first 10), excluding occupied cells
+        local validCells = {}
         local endIndex = math.min(10, math.min(GridFeedingZones.MAX_RECENT_CELLS, #self.cellsByTimestamp))
-        if endIndex > 0 then
-            local randomIndex = math.random(1, endIndex)
-            selectedCell = self.cellsByTimestamp[randomIndex]
+        
+        for i = 1, endIndex do
+            local cell = self.cellsByTimestamp[i]
+            if not self:isCellOccupied(cell.gridX, cell.gridZ) then
+                table.insert(validCells, cell)
+            end
+        end
+        
+        if #validCells > 0 then
+            local randomIndex = math.random(1, #validCells)
+            selectedCell = validCells[randomIndex]
         end
     else
-        -- Distance-weighted strategy: favor closer cells (to bird)
+        -- Distance-weighted strategy: favor closer cells (to bird), excluding occupied cells
         local validCells = {}
         local weights = {}
         local totalWeight = 0
@@ -265,14 +278,17 @@ function GridFeedingZones:requestFeedingTarget(birdX, birdZ, vehicleX, vehicleZ,
         for i = 1, #self.cellsByTimestamp do
             local cell = self.cellsByTimestamp[i]
 
-            -- Calculate weight based on distance to bird
-            local distance = MathUtil.vector2Length(cell.gridX - birdX, cell.gridZ - birdZ)
+            -- Skip occupied cells
+            if not self:isCellOccupied(cell.gridX, cell.gridZ) then
+                -- Calculate weight based on distance to bird
+                local distance = MathUtil.vector2Length(cell.gridX - birdX, cell.gridZ - birdZ)
 
-            -- Inverse distance weight (closer to bird = higher weight)
-            local weight = 1.0 / (distance + 1.0)
-            table.insert(validCells, cell)
-            table.insert(weights, weight)
-            totalWeight = totalWeight + weight
+                -- Inverse distance weight (closer to bird = higher weight)
+                local weight = 1.0 / (distance + 1.0)
+                table.insert(validCells, cell)
+                table.insert(weights, weight)
+                totalWeight = totalWeight + weight
+            end
         end
 
         -- Check if we have any valid cells
@@ -338,6 +354,97 @@ function GridFeedingZones:requestFeedingTarget(birdX, birdZ, vehicleX, vehicleZ,
     })
 
     return targetX, targetZ
+end
+
+---
+-- Update occupied cells for a vehicle based on its physical dimensions
+-- @param vehicleId: Unique identifier for the vehicle (e.g., vehicle.rootNode)
+-- @param x, z: Vehicle center position
+-- @param rotY: Vehicle rotation (yaw)
+-- @param length: Vehicle length in meters (sizeLength)
+-- @param width: Vehicle width in meters (sizeWidth)
+---
+function GridFeedingZones:updateOccupiedCells(vehicleId, x, z, rotY, length, width)
+    if not vehicleId then
+        return
+    end
+
+    -- Clear previous occupied cells for this vehicle
+    self.occupiedCells[vehicleId] = {}
+
+    -- Calculate the four corners of the vehicle's bounding box
+    local halfLength = length / 2
+    local halfWidth = width / 2
+
+    -- Local corners (relative to vehicle center)
+    local corners = {
+        { x = -halfLength, z = -halfWidth },
+        { x = halfLength,  z = -halfWidth },
+        { x = halfLength,  z = halfWidth },
+        { x = -halfLength, z = halfWidth }
+    }
+
+    -- Rotate corners and convert to world coordinates
+    local cosRot = math.cos(rotY)
+    local sinRot = math.sin(rotY)
+    local worldCorners = {}
+
+    for _, corner in ipairs(corners) do
+        local worldX = x + corner.x * cosRot - corner.z * sinRot
+        local worldZ = z + corner.x * sinRot + corner.z * cosRot
+        table.insert(worldCorners, { x = worldX, z = worldZ })
+    end
+
+    -- Find bounding box of rotated vehicle
+    local minX = math.min(worldCorners[1].x, worldCorners[2].x, worldCorners[3].x, worldCorners[4].x)
+    local maxX = math.max(worldCorners[1].x, worldCorners[2].x, worldCorners[3].x, worldCorners[4].x)
+    local minZ = math.min(worldCorners[1].z, worldCorners[2].z, worldCorners[3].z, worldCorners[4].z)
+    local maxZ = math.max(worldCorners[1].z, worldCorners[2].z, worldCorners[3].z, worldCorners[4].z)
+
+    -- Convert to grid cells
+    local startGridX = math.floor(minX / GridFeedingZones.GRID_SIZE) * GridFeedingZones.GRID_SIZE
+    local endGridX = math.floor(maxX / GridFeedingZones.GRID_SIZE) * GridFeedingZones.GRID_SIZE
+    local startGridZ = math.floor(minZ / GridFeedingZones.GRID_SIZE) * GridFeedingZones.GRID_SIZE
+    local endGridZ = math.floor(maxZ / GridFeedingZones.GRID_SIZE) * GridFeedingZones.GRID_SIZE
+
+    -- Mark all grid cells within the bounding box as occupied
+    for gx = startGridX, endGridX, GridFeedingZones.GRID_SIZE do
+        for gz = startGridZ, endGridZ, GridFeedingZones.GRID_SIZE do
+            local gridX, gridZ = GridFeedingZones.getGridPosition(
+                gx + GridFeedingZones.GRID_SIZE / 2,
+                gz + GridFeedingZones.GRID_SIZE / 2
+            )
+            local key = GridFeedingZones.getGridKey(gridX, gridZ)
+            self.occupiedCells[vehicleId][key] = true
+        end
+    end
+end
+
+---
+-- Clear occupied cells for a vehicle (call when vehicle is deleted)
+-- @param vehicleId: Unique identifier for the vehicle
+---
+function GridFeedingZones:clearOccupiedCells(vehicleId)
+    if vehicleId then
+        self.occupiedCells[vehicleId] = nil
+    end
+end
+
+---
+-- Check if a grid cell is occupied by any vehicle
+-- @param gridX, gridZ: Grid cell coordinates
+-- @return boolean: true if occupied, false otherwise
+---
+function GridFeedingZones:isCellOccupied(gridX, gridZ)
+    local key = GridFeedingZones.getGridKey(gridX, gridZ)
+
+    for _, vehicleCells in pairs(self.occupiedCells) do
+        if vehicleCells[key] then
+            return true
+        end
+    end
+
+    return false
 end
 
 ---
@@ -465,4 +572,5 @@ function GridFeedingZones:clear()
     self.bufferedCells = {}
     self.recentlyEatenCells = {}
     self.pendingFeedingCells = {}
+    self.occupiedCells = {}
 end

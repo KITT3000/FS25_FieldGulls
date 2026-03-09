@@ -97,6 +97,10 @@ function ToolBirdFlockManager.new(vehicle, workAreaType)
     self.targetNumberOfBirds = nil                                                      -- Random target (50%-100% of max), set on activation
     self.noBirdsUntilTime = nil                                                         -- Time when birds can spawn again after chance roll failed
     self.workingWidth = ToolBirdFlockManager.getToolWorkingWidth(vehicle, workAreaType) -- Cache the working width
+    
+    -- Track last occupied cell update time (update every 200ms to reduce calls)
+    self.lastOccupiedCellUpdate = 0
+    self.occupiedCellUpdateInterval = 200 -- ms
 
     -- Sound management (using g_soundManager for automatic indoor/outdoor handling)
     self.soundSample = nil    -- The sample loaded by g_soundManager
@@ -215,6 +219,11 @@ end
 function ToolBirdFlockManager:deactivate()
     self.isActive = false
     self:stopSound()
+    
+    -- Clear occupied cells when deactivating
+    if g_gridFeedingZones and self.vehicle and self.vehicle.rootNode then
+        g_gridFeedingZones:clearOccupiedCells(self.vehicle.rootNode)
+    end
 end
 
 ---
@@ -281,6 +290,11 @@ function ToolBirdFlockManager:update(dt)
 
     -- Auto-deactivate when no active birds and no despawning birds
     if not self.isActive and #self.despawningBirds == 0 and not self.isDespawning then
+        -- Clear occupied cells before unregistering
+        if g_gridFeedingZones and self.vehicle and self.vehicle.rootNode then
+            g_gridFeedingZones:clearOccupiedCells(self.vehicle.rootNode)
+        end
+        
         -- Unregister from BirdManager when fully inactive
         if BirdManager and self.vehicle then
             BirdManager:unregisterFlockManager(self.vehicle)
@@ -299,6 +313,15 @@ function ToolBirdFlockManager:update(dt)
     -- Check if we have a valid vehicle
     if not self.vehicle then
         return
+    end
+
+    -- Update occupied cells periodically (every 200ms to reduce overhead)
+    if g_gridFeedingZones then
+        self.lastOccupiedCellUpdate = self.lastOccupiedCellUpdate + dt
+        if self.lastOccupiedCellUpdate >= self.occupiedCellUpdateInterval then
+            self:updateOccupiedCells()
+            self.lastOccupiedCellUpdate = 0
+        end
     end
 
     -- Gradually spawn birds over time (one every SPAWN_INTERVAL) - only when active
@@ -368,6 +391,27 @@ function ToolBirdFlockManager:spawnOneBird()
     end
 
     return false
+end
+
+---
+-- Update occupied cells in the global feeding zones system
+---
+function ToolBirdFlockManager:updateOccupiedCells()
+    if not self.vehicle or not self.vehicle.rootNode or not g_gridFeedingZones then
+        return
+    end
+
+    -- Get vehicle position and rotation
+    local x, _, z = getWorldTranslation(self.vehicle.rootNode)
+    local _, rotY, _ = getRotation(self.vehicle.rootNode)
+
+    -- Get vehicle dimensions (use size properties or fallbacks)
+    local length = self.vehicle.sizeLength or 5.0
+    local width = self.vehicle.sizeWidth or 3.0
+
+    -- Update occupied cells in the global system
+    -- Use vehicle.rootNode as unique ID
+    g_gridFeedingZones:updateOccupiedCells(self.vehicle.rootNode, x, z, rotY, length, width)
 end
 
 ---
@@ -574,6 +618,11 @@ function ToolBirdFlockManager:stopSound()
 
     self.soundSample = nil
     self.soundStarted = false
+    
+    -- Clear occupied cells when cleaning up
+    if g_gridFeedingZones and self.vehicle and self.vehicle.rootNode then
+        g_gridFeedingZones:clearOccupiedCells(self.vehicle.rootNode)
+    end
 end
 
 ---
