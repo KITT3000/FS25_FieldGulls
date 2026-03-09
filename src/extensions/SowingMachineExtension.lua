@@ -11,7 +11,7 @@ SowingMachineExtension = {}
 -- @param dt: Delta time
 ---
 function SowingMachineExtension:onStartWorkAreaProcessing(superFunc, dt)
-    if g_currentMission:getIsServer() then
+    if not g_currentMission:getIsClient() then
         if superFunc ~= nil then
             superFunc(self, dt)
         end
@@ -30,7 +30,7 @@ end
 -- @param hasProcessed: Whether areas were processed
 ---
 function SowingMachineExtension:onEndWorkAreaProcessing(superFunc, dt, hasProcessed)
-    if g_currentMission:getIsServer() then
+    if not g_currentMission:getIsClient() then
         if superFunc ~= nil then
             superFunc(self, dt, hasProcessed)
         end

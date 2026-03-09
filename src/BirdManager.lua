@@ -10,7 +10,7 @@ BirdManager.activeFlockManagers = {}
 -- Initialize the bird manager
 ---
 function BirdManager:loadMap()
-    if g_currentMission:getIsServer() then return end
+    if not g_currentMission:getIsClient() then return end
 
     local birdConfig = BirdConfig.loadConfig()
     if birdConfig and birdConfig.filename then
@@ -37,7 +37,7 @@ end
 -- @param dt: Delta time in milliseconds
 ---
 function BirdManager:update(dt)
-    if g_currentMission:getIsServer() then return end
+    if not g_currentMission:getIsClient() then return end
 
     if g_gridFeedingZones then
         g_gridFeedingZones:update(dt)

@@ -13,7 +13,7 @@ CultivatorExtension = {}
 -- @param dt: Delta time
 ---
 function CultivatorExtension:processCultivatorArea(superFunc, workArea, dt)
-    if g_currentMission:getIsServer() then return superFunc(self, workArea, dt) end
+    if not g_currentMission:getIsClient() then return superFunc(self, workArea, dt) end
 
     -- Call original function first
     local changedArea, totalArea = superFunc(self, workArea, dt)
@@ -42,7 +42,7 @@ end
 -- @param dt: Delta time in milliseconds
 ---
 function CultivatorExtension:onEndWorkAreaProcessing(superFunc, dt)
-    if g_currentMission:getIsServer() then
+    if not g_currentMission:getIsClient() then
         if superFunc ~= nil then
             superFunc(self, dt)
         end
