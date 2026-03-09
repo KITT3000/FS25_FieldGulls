@@ -526,9 +526,10 @@ function BirdStateMachine:updateSearchingState(dt)
     local timeSinceLastCheck = g_time - (self.stateData.lastCellCheck or 0)
     if timeSinceLastCheck > self.feedingConfig.searchingCheckInterval then
         self.stateData.lastCellCheck = g_time
+        local cellCount = g_gridFeedingZones and g_gridFeedingZones:getCellCount() or 0
 
         -- Try to actually get a valid target (not just check if cells exist)
-        if g_gridFeedingZones and g_gridFeedingZones:getCellCount() > 0 then
+        if g_gridFeedingZones and cellCount > 0 then
             local currentX, currentY, currentZ = self.bird:getCurrentPosition()
             local isMoving = self:isVehicleMoving()
             local vehicleX, vehicleY, vehicleZ = getWorldTranslation(self.bird.manager.vehicle.rootNode)

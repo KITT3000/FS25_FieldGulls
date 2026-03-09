@@ -18,8 +18,8 @@ function CultivatorExtension:processCultivatorArea(superFunc, workArea, dt)
     -- Call original function first
     local changedArea, totalArea = superFunc(self, workArea, dt)
 
-    -- Track grid cells for bird feeding if we're working
-    if changedArea and changedArea > 0 and g_gridFeedingZones then
+    -- Track grid cells for bird feeding whenever we're called
+    if g_gridFeedingZones then
         local sx, sy, sz = getWorldTranslation(workArea.start)
         local wx, wy, wz = getWorldTranslation(workArea.width)
         local hx, hy, hz = getWorldTranslation(workArea.height)

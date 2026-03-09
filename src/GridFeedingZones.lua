@@ -94,13 +94,14 @@ function GridFeedingZones:addCellImmediate(gridX, gridZ)
                 break
             end
         end
-        return
+        -- Cell already exists, just refreshed
+        return true
     end
 
     -- Check ground type at this position - only add cells on valid fields
     self.fieldState:update(gridX, gridZ)
     if self.fieldState.groundType == FieldGroundType.NONE then
-        return
+        return false
     end
 
     -- Create new cell
@@ -223,7 +224,9 @@ function GridFeedingZones:requestFeedingTarget(birdX, birdZ, vehicleX, vehicleZ,
 
     -- 80% chance: Pick randomly from top most recent cells
     -- 20% chance: Pick weighted by inverse distance
-    if math.random() < 0.80 then
+    local useRecentCells = math.random() < 0.80
+    
+    if useRecentCells then
         -- Pick randomly from recent cells, excluding occupied cells
         -- Check up to MAX_RECENT_CELLS (40) to find cells that have moved out from under vehicle
         local validCells = {}
