@@ -11,10 +11,7 @@ GridFeedingZones.GRID_SIZE = 1                      -- 1m x 1m grid cells
 GridFeedingZones.CELL_EXPIRE_TIME = 90000           -- Cells expire after 90 seconds (ms)
 GridFeedingZones.BUFFER_TIME = 8000                 -- Time before moving to recently eaten (ms)
 GridFeedingZones.RECENTLY_EATEN_EXPIRE_TIME = 80000 -- Recently eaten cells expire after 80 seconds (ms)
-GridFeedingZones.MAX_RECENT_CELLS = 40              -- Max recent cells to consider for priority feeding
-
--- Pending cell buffer configuration (prevents birds landing where tractor just was)
-GridFeedingZones.PENDING_DELAY = 50 -- Delay before cells become available (ms)
+GridFeedingZones.MAX_RECENT_CELLS = 80              -- Max recent cells to consider for priority feeding
 
 ---
 -- Convert world position to grid coordinates
@@ -65,10 +62,6 @@ function GridFeedingZones.new()
     -- Array of { gridX, gridZ, timestamp }
     self.recentlyEatenCells = {}
 
-    -- Pending feeding cells waiting for tractor to move away
-    -- Array of { gridX, gridZ, timestamp, releaseTime }
-    self.pendingFeedingCells = {}
-
     -- FieldState instance for checking ground type at positions
     self.fieldState = FieldState.new()
 
@@ -80,49 +73,27 @@ function GridFeedingZones.new()
 end
 
 ---
--- Add a cell to the feeding zones (via pending buffer)
--- @param x, z: World position
----
-function GridFeedingZones:addCell(x, z)
-    local gridX, gridZ = GridFeedingZones.getGridPosition(x, z)
-    local key = GridFeedingZones.getGridKey(gridX, gridZ)
-
-    -- Check if cell already exists in active cells
-    if self.cells[key] then
-        -- Cell was plowed again - remove from active and re-add to pending buffer for full cycle
-        self:removeCell(gridX, gridZ)
-    end
-
-    local delay = GridFeedingZones.PENDING_DELAY
-
-    -- Check if already in pending buffer - if so, reset the release time
-    for _, pendingCell in ipairs(self.pendingFeedingCells) do
-        if pendingCell.gridX == gridX and pendingCell.gridZ == gridZ then
-            -- Reset release time to start buffer delay from scratch
-            pendingCell.timestamp = g_time
-            pendingCell.releaseTime = g_time + delay
-            return
-        end
-    end
-
-    -- Add to pending buffer
-    table.insert(self.pendingFeedingCells, {
-        gridX = gridX,
-        gridZ = gridZ,
-        timestamp = g_time,
-        releaseTime = g_time + delay
-    })
-end
-
----
--- Internal: Add a cell directly to active feeding zones (called after pending delay)
+-- Add a cell to the feeding zones
 -- @param gridX, gridZ: Grid position
 ---
 function GridFeedingZones:addCellImmediate(gridX, gridZ)
     local key = GridFeedingZones.getGridKey(gridX, gridZ)
 
-    -- Check if cell already exists
+    -- Check if cell already exists - if so, refresh it
     if self.cells[key] then
+        local cell = self.cells[key]
+        
+        -- Update timestamp to keep it fresh
+        cell.timestamp = g_time
+        
+        -- Move to front of timestamp list (newest first)
+        for i, orderedCell in ipairs(self.cellsByTimestamp) do
+            if orderedCell == cell then
+                table.remove(self.cellsByTimestamp, i)
+                table.insert(self.cellsByTimestamp, 1, cell)
+                break
+            end
+        end
         return
     end
 
@@ -250,12 +221,13 @@ function GridFeedingZones:requestFeedingTarget(birdX, birdZ, vehicleX, vehicleZ,
 
     local selectedCell = nil
 
-    -- 75% chance: Pick randomly from top most recent cells
-    -- 25% chance: Pick weighted by inverse distance
-    if math.random() < 0.75 then
-        -- Pick randomly from recent cells (up to first 10), excluding occupied cells
+    -- 80% chance: Pick randomly from top most recent cells
+    -- 20% chance: Pick weighted by inverse distance
+    if math.random() < 0.80 then
+        -- Pick randomly from recent cells, excluding occupied cells
+        -- Check up to MAX_RECENT_CELLS (40) to find cells that have moved out from under vehicle
         local validCells = {}
-        local endIndex = math.min(10, math.min(GridFeedingZones.MAX_RECENT_CELLS, #self.cellsByTimestamp))
+        local endIndex = math.min(GridFeedingZones.MAX_RECENT_CELLS, #self.cellsByTimestamp)
 
         for i = 1, endIndex do
             local cell = self.cellsByTimestamp[i]
@@ -531,21 +503,6 @@ function GridFeedingZones:update(dt)
         table.remove(self.bufferedCells, toMove[i])
     end
 
-    -- Process pending feeding cells: move to active cells after delay
-    local toActivate = {}
-    for i, pendingCell in ipairs(self.pendingFeedingCells) do
-        if currentTime >= pendingCell.releaseTime then
-            -- Time to activate this cell
-            self:addCellImmediate(pendingCell.gridX, pendingCell.gridZ)
-            table.insert(toActivate, i)
-        end
-    end
-
-    -- Remove activated cells from pending (iterate backwards)
-    for i = #toActivate, 1, -1 do
-        table.remove(self.pendingFeedingCells, toActivate[i])
-    end
-
     -- Clean up expired recently eaten cells (unused for 60 seconds)
     local expireTime = currentTime - GridFeedingZones.RECENTLY_EATEN_EXPIRE_TIME
     local toRemove = {}
@@ -582,6 +539,5 @@ function GridFeedingZones:clear()
     self.spatialIndex = {}
     self.bufferedCells = {}
     self.recentlyEatenCells = {}
-    self.pendingFeedingCells = {}
     self.occupiedCells = {}
 end

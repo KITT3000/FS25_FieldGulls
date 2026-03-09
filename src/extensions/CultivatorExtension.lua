@@ -27,7 +27,7 @@ function CultivatorExtension:processCultivatorArea(superFunc, workArea, dt)
 
         -- Add cells to global grid system
         for _, cell in ipairs(cells) do
-            g_gridFeedingZones:addCell(cell.gridX, cell.gridZ)
+            g_gridFeedingZones:addCellImmediate(cell.gridX, cell.gridZ)
         end
     end
 

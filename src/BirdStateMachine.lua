@@ -40,8 +40,8 @@ function BirdStateMachine.new(bird)
         searchingHeight = 6.0,         -- Height to fly at when searching (10-20m)
         searchingDistance = 15.0,      -- Distance between search points (10-20m)
         searchingCheckInterval = 3000, -- Check for cells every 3 seconds
-        diveSpeed = 6.0,               -- Speed when diving to ground (m/s)
-        slowLandingSpeed = 4.0,        -- Speed during hover landing approach (m/s)
+        diveSpeed = 5.0,               -- Speed when diving to ground (m/s)
+        slowLandingSpeed = 3.0,        -- Speed during hover landing approach (m/s)
     }
 
     -- Enter the initial state to trigger behavior
@@ -183,7 +183,7 @@ function BirdStateMachine:enterApproachingPlowState()
     local targetY = targetTerrainY + targetHeight
 
     -- Fly to work area at altitude
-    self.bird:moveToTarget(targetX, targetY, targetZ, 10.0)
+    self.bird:moveToTarget(targetX, targetY, targetZ, 8.0)
 end
 
 function BirdStateMachine:updateApproachingPlowState(dt)
@@ -572,7 +572,7 @@ function BirdStateMachine:enterDespawningState()
     self.stateData.despawnStartTime = g_time
 
     -- Use straight line for fast despawn
-    self.bird:moveToTarget(targetX, targetY, targetZ, 12.0) -- Fast despawn (increased speed)
+    self.bird:moveToTarget(targetX, targetY, targetZ, 10.0) -- Fast despawn (increased speed)
 
     -- Mark bird as despawning
     if self.bird then
