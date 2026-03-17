@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8" standalone="no" ?>
 <modDesc descVersion="106">
     <author>Ozz</author>
-    <version>1.0.0.0</version>
+    <version>1.0.0.1</version>
     <iconFilename>icon_FieldGulls.dds</iconFilename>
     <title>
         <en>Field Gulls</en>
@@ -16,6 +16,12 @@ A mod to add gulls that follow you and eat from the ground when plowing, cultiva
 Customize the number of gulls that can spawn, the chance of them appearing, and the volume of their sounds in the mod settings.
 
 GitHub: https://github.com/sprkem/FS25_FieldGulls
+
+Changelog:
+
+1.0.0.1:
+- Birds will now flee vehicles, creating a more natural feel if driving over recently worked land.
+- Fixed a bug where gulls would freeze in place when some tools were returned on lease or sold.
 
 ]]>
         </en>
