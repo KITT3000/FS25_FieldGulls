@@ -69,19 +69,7 @@ function SowingMachineExtension:onEndWorkAreaProcessing(superFunc, dt, hasProces
 
     local spec = self.spec_sowingMachine
     local isCurrentlyWorking = spec and spec.isWorking or false
-    ToolBirdsExtension:onUpdate(self, dt, isCurrentlyWorking)
-end
-
----
--- Extended onDelete function for SowingMachine specialization
--- @param superFunc: Original function
----
-function SowingMachineExtension:onDelete(superFunc)
-    ToolBirdsExtension:onDelete(self)
-
-    if superFunc ~= nil then
-        superFunc(self)
-    end
+    ToolBirdsExtension:reportToolActive(self, dt, isCurrentlyWorking)
 end
 
 -- Hook into SowingMachine specialization
@@ -93,9 +81,4 @@ SowingMachine.onStartWorkAreaProcessing = Utils.overwrittenFunction(
 SowingMachine.onEndWorkAreaProcessing = Utils.overwrittenFunction(
     SowingMachine.onEndWorkAreaProcessing,
     SowingMachineExtension.onEndWorkAreaProcessing
-)
-
-SowingMachine.onDelete = Utils.overwrittenFunction(
-    SowingMachine.onDelete,
-    SowingMachineExtension.onDelete
 )

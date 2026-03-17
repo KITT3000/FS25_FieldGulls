@@ -57,19 +57,7 @@ function PlowExtension:onEndWorkAreaProcessing(superFunc, dt)
     local spec = self.spec_plow
     local isCurrentlyWorking = spec and spec.isWorking or false
 
-    ToolBirdsExtension:onUpdate(self, dt, isCurrentlyWorking)
-end
-
----
--- Extended onDelete function for Plow specialization
--- @param superFunc: Original function
----
-function PlowExtension:onDelete(superFunc)
-    ToolBirdsExtension:onDelete(self)
-
-    if superFunc ~= nil then
-        superFunc(self)
-    end
+    ToolBirdsExtension:reportToolActive(self, dt, isCurrentlyWorking)
 end
 
 -- Hook into Plow specialization
@@ -81,9 +69,4 @@ Plow.processPlowArea = Utils.overwrittenFunction(
 Plow.onEndWorkAreaProcessing = Utils.overwrittenFunction(
     Plow.onEndWorkAreaProcessing,
     PlowExtension.onEndWorkAreaProcessing
-)
-
-Plow.onDelete = Utils.overwrittenFunction(
-    Plow.onDelete,
-    PlowExtension.onDelete
 )

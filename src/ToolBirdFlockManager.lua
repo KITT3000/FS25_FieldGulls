@@ -74,13 +74,15 @@ end
 
 ---
 -- Create a new ToolBirdFlockManager instance
--- @param vehicle: The vehicle this flock manager follows
+-- @param toolId: Unique numeric ID assigned by BirdManager
+-- @param vehicle: The vehicle this flock manager follows (may become nil if deleted)
 -- @param workAreaType: The work area type enum
 -- @return ToolBirdFlockManager instance
 ---
-function ToolBirdFlockManager.new(vehicle, workAreaType)
+function ToolBirdFlockManager.new(toolId, vehicle, workAreaType)
     local self = setmetatable({}, ToolBirdFlockManager_mt)
 
+    self.toolId = toolId
     self.vehicle = vehicle
     self.workAreaType = workAreaType
     self.spawnedBirds = {}                                                              -- Track our spawned birds
@@ -102,14 +104,31 @@ function ToolBirdFlockManager.new(vehicle, workAreaType)
     self.lastOccupiedCellUpdate = 0
     self.occupiedCellUpdateInterval = 200 -- ms
 
+    -- Last known tool position/direction (snapshot updated each frame the tool reports in)
+    self.lastToolReportTime = nil           -- g_time of last reportToolActive() call
+    self.lastToolX = 0                      -- Last known tool world X
+    self.lastToolY = 0                      -- Last known tool world Y
+    self.lastToolZ = 0                      -- Last known tool world Z
+    self.lastToolDirX = 0                   -- Last known forward direction X
+    self.lastToolDirZ = 1                   -- Last known forward direction Z
+    self.toolLost = false                   -- Set true when BirdManager detects tool silence
+
     -- Sound management (using g_soundManager for automatic indoor/outdoor handling)
     self.soundSample = nil    -- The sample loaded by g_soundManager
     self.soundTransform = nil -- Transform node to position the sound
     self.soundStartTime = nil -- When spawning started (for 8s delay)
     self.soundStarted = false -- Track if sound has started
 
+    -- Snapshot initial vehicle position
+    if vehicle and vehicle.rootNode and entityExists(vehicle.rootNode) then
+        local x, y, z = getWorldTranslation(vehicle.rootNode)
+        local dx, _, dz = localDirectionToWorld(vehicle.rootNode, 0, 0, 1)
+        self.lastToolX, self.lastToolY, self.lastToolZ = x, y, z
+        self.lastToolDirX, self.lastToolDirZ = dx, dz
+    end
+
     if BirdManager then
-        BirdManager:registerFlockManager(vehicle, self)
+        BirdManager:registerFlockManager(toolId, self)
     end
 
     return self
@@ -145,14 +164,80 @@ function ToolBirdFlockManager:determineBirdSpawn()
 end
 
 ---
+-- Check if the vehicle reference is still valid (not deleted/returned)
+-- @return boolean: true if vehicle and its rootNode still exist
+---
+function ToolBirdFlockManager:isVehicleValid()
+    return self.vehicle ~= nil
+        and self.vehicle.rootNode ~= nil
+        and entityExists(self.vehicle.rootNode)
+end
+
+---
+-- Called each frame by the tool extension to report that the tool is still alive.
+-- Snapshots the vehicle position/direction so the flock can continue if the tool vanishes.
+-- @param vehicle: The vehicle reference (may be used to refresh a stale reference)
+---
+function ToolBirdFlockManager:reportToolActive(vehicle)
+    -- Refresh vehicle reference in case it was re-created
+    self.vehicle = vehicle
+    self.lastToolReportTime = g_time
+    self.toolLost = false
+
+    -- Snapshot current vehicle position and direction
+    if self:isVehicleValid() then
+        local x, y, z = getWorldTranslation(self.vehicle.rootNode)
+        local dx, _, dz = localDirectionToWorld(self.vehicle.rootNode, 0, 0, 1)
+        self.lastToolX, self.lastToolY, self.lastToolZ = x, y, z
+        self.lastToolDirX, self.lastToolDirZ = dx, dz
+    end
+end
+
+---
+-- Called by BirdManager when the tool has stopped reporting (deleted/returned/sold).
+-- Triggers the despawn sequence as if the tool simply stopped working.
+---
+function ToolBirdFlockManager:onToolLost()
+    if self.toolLost then return end -- Already handled
+    self.toolLost = true
+    self.vehicle = nil -- Clear the stale vehicle reference
+
+    -- If actively spawning, start despawn
+    if self.isActive then
+        self:startDespawnTimer()
+    end
+end
+
+---
+-- Immediately cleanup all birds and sounds (used on map unload)
+---
+function ToolBirdFlockManager:forceCleanup()
+    -- Delete all active birds immediately
+    for _, bird in ipairs(self.spawnedBirds) do
+        if bird and bird.delete then
+            bird:delete()
+        end
+    end
+    self.spawnedBirds = {}
+
+    -- Delete all despawning birds immediately
+    for _, bird in ipairs(self.despawningBirds) do
+        if bird and bird.delete then
+            bird:delete()
+        end
+    end
+    self.despawningBirds = {}
+
+    self:stopSound()
+    self.isActive = false
+    self.isDespawning = false
+end
+
+---
 -- Activate the bird flock
 -- @return true if activated successfully
 ---
 function ToolBirdFlockManager:activate()
-    if not self.vehicle then
-        return false
-    end
-
     if self.isDespawning then
         self:cancelDespawnTimer()
 
@@ -171,8 +256,8 @@ function ToolBirdFlockManager:activate()
         if not self.isActive then
             self.isActive = true
 
-            if BirdManager and self.vehicle then
-                BirdManager:registerFlockManager(self.vehicle, self)
+            if BirdManager then
+                BirdManager:registerFlockManager(self.toolId, self)
             end
 
             if not self.soundStarted then
@@ -201,8 +286,8 @@ function ToolBirdFlockManager:activate()
     self.numBirdsSpawned = 0
     self.lastSpawnTime = g_time
 
-    if BirdManager and self.vehicle then
-        BirdManager:registerFlockManager(self.vehicle, self)
+    if BirdManager then
+        BirdManager:registerFlockManager(self.toolId, self)
     end
 
     -- Initialize sound
@@ -221,7 +306,7 @@ function ToolBirdFlockManager:deactivate()
     self:stopSound()
     
     -- Clear occupied cells when deactivating
-    if g_gridFeedingZones and self.vehicle and self.vehicle.rootNode then
+    if g_gridFeedingZones and self:isVehicleValid() then
         g_gridFeedingZones:clearOccupiedCells(self.vehicle.rootNode)
     end
 end
@@ -291,13 +376,13 @@ function ToolBirdFlockManager:update(dt)
     -- Auto-deactivate when no active birds and no despawning birds
     if not self.isActive and #self.despawningBirds == 0 and not self.isDespawning then
         -- Clear occupied cells before unregistering
-        if g_gridFeedingZones and self.vehicle and self.vehicle.rootNode then
+        if g_gridFeedingZones and self:isVehicleValid() then
             g_gridFeedingZones:clearOccupiedCells(self.vehicle.rootNode)
         end
         
         -- Unregister from BirdManager when fully inactive
-        if BirdManager and self.vehicle then
-            BirdManager:unregisterFlockManager(self.vehicle)
+        if BirdManager then
+            BirdManager:unregisterFlockManager(self.toolId)
         end
         return -- Fully inactive, nothing to update
     end
@@ -310,13 +395,8 @@ function ToolBirdFlockManager:update(dt)
         end
     end
 
-    -- Check if we have a valid vehicle
-    if not self.vehicle then
-        return
-    end
-
-    -- Update occupied cells periodically (every 200ms to reduce overhead)
-    if g_gridFeedingZones then
+    -- Update occupied cells periodically (only if vehicle is still valid)
+    if g_gridFeedingZones and self:isVehicleValid() then
         self.lastOccupiedCellUpdate = self.lastOccupiedCellUpdate + dt
         if self.lastOccupiedCellUpdate >= self.occupiedCellUpdateInterval then
             self:updateOccupiedCells()
@@ -355,17 +435,20 @@ function ToolBirdFlockManager:spawnOneBird()
         return false
     end
 
-    if not self.vehicle or not self.vehicle.rootNode then
-        return false
-    end
-
     -- Check if there are any feeding cells available before spawning
     if not g_gridFeedingZones or g_gridFeedingZones:getCellCount() == 0 then
         return false
     end
 
-    local vehicleX, vehicleY, vehicleZ = getWorldTranslation(self.vehicle.rootNode)
-    local dx, _, dz = localDirectionToWorld(self.vehicle.rootNode, 0, 0, 1)
+    -- Use live vehicle position if available, otherwise fall back to last known position
+    local vehicleX, vehicleY, vehicleZ, dx, dz
+    if self:isVehicleValid() then
+        vehicleX, vehicleY, vehicleZ = getWorldTranslation(self.vehicle.rootNode)
+        dx, _, dz = localDirectionToWorld(self.vehicle.rootNode, 0, 0, 1)
+    else
+        vehicleX, vehicleY, vehicleZ = self.lastToolX, self.lastToolY, self.lastToolZ
+        dx, dz = self.lastToolDirX, self.lastToolDirZ
+    end
     local movementDirection = math.atan2(dx, dz)
 
     local i = self.numBirdsSpawned + 1
@@ -402,7 +485,7 @@ end
 -- Update occupied cells in the global feeding zones system
 ---
 function ToolBirdFlockManager:updateOccupiedCells()
-    if not self.vehicle or not self.vehicle.rootNode or not g_gridFeedingZones then
+    if not g_gridFeedingZones or not self:isVehicleValid() then
         return
     end
 
@@ -427,8 +510,8 @@ function ToolBirdFlockManager:cleanup()
         self.isActive = false
         self:stopSound()
 
-        if BirdManager and self.vehicle then
-            BirdManager:unregisterFlockManager(self.vehicle)
+        if BirdManager then
+            BirdManager:unregisterFlockManager(self.toolId)
         end
         return
     end
@@ -503,9 +586,9 @@ function ToolBirdFlockManager:initializeSound()
         return
     end
 
-    -- Get initial vehicle position for sound
-    local vehicleX, vehicleY, vehicleZ = 0, 0, 0
-    if self.vehicle and self.vehicle.rootNode then
+    -- Get initial vehicle position for sound (use live or last known)
+    local vehicleX, vehicleY, vehicleZ = self.lastToolX, self.lastToolY, self.lastToolZ
+    if self:isVehicleValid() then
         vehicleX, vehicleY, vehicleZ = getWorldTranslation(self.vehicle.rootNode)
     end
 
@@ -552,12 +635,15 @@ function ToolBirdFlockManager:updateSoundPosition()
         return
     end
 
-    if not self.vehicle or not self.vehicle.rootNode then
-        return
+    -- Use live vehicle position if available, otherwise last known position
+    local x, y, z
+    if self:isVehicleValid() then
+        x, y, z = getWorldTranslation(self.vehicle.rootNode)
+    else
+        x, y, z = self.lastToolX, self.lastToolY, self.lastToolZ
     end
 
-    local vehicleX, vehicleY, vehicleZ = getWorldTranslation(self.vehicle.rootNode)
-    setTranslation(self.soundTransform, vehicleX, vehicleY, vehicleZ)
+    setTranslation(self.soundTransform, x, y, z)
 end
 
 ---
@@ -625,7 +711,7 @@ function ToolBirdFlockManager:stopSound()
     self.soundStarted = false
     
     -- Clear occupied cells when cleaning up
-    if g_gridFeedingZones and self.vehicle and self.vehicle.rootNode then
+    if g_gridFeedingZones and self:isVehicleValid() then
         g_gridFeedingZones:clearOccupiedCells(self.vehicle.rootNode)
     end
 end

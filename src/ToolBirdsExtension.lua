@@ -1,12 +1,15 @@
 ---
 -- ToolBirdsExtension
--- Generic utility methods for spawning following birds on any tool type
+-- Thin registration layer between tool specializations and BirdManager.
+-- Tools call reportToolActive() each frame they are working. BirdManager owns
+-- the update lifecycle — if the tool disappears, the flock detects the silence
+-- and transitions to dispersal automatically.
 ---
 
 ToolBirdsExtension = {}
 
 ---
--- Initialize bird data on a vehicle
+-- Initialize bird data on a vehicle (called once, lazily, from the tool extension)
 -- @param vehicle: The vehicle to extend
 -- @param workAreaType: The WorkAreaType enum value for this tool
 ---
@@ -17,8 +20,12 @@ function ToolBirdsExtension:initialize(vehicle, workAreaType)
         return
     end
 
+    -- Generate a unique tool ID so the flock is not keyed on the vehicle reference
+    local toolId = BirdManager:generateToolId()
+
     -- Add our extension data to the vehicle
     vehicle.toolBirdsData = {
+        toolId = toolId,
         flockManager = nil,
         isWorking = false,
         initialized = true,
@@ -27,12 +34,14 @@ function ToolBirdsExtension:initialize(vehicle, workAreaType)
 end
 
 ---
--- Generic update function to manage bird spawning/despawning
+-- Report that a tool is actively working this frame.
+-- Called every frame from the tool extension's onEndWorkAreaProcessing.
+-- Handles work start/stop transitions and keeps the flock alive.
 -- @param vehicle: The vehicle with tool
 -- @param dt: Delta time in milliseconds
 -- @param isCurrentlyWorking: Boolean indicating if the tool is currently working
 ---
-function ToolBirdsExtension:onUpdate(vehicle, dt, isCurrentlyWorking)
+function ToolBirdsExtension:reportToolActive(vehicle, dt, isCurrentlyWorking)
     if not g_currentMission:getIsClient() then return end
 
     if not vehicle.toolBirdsData or not vehicle.toolBirdsData.initialized then
@@ -41,69 +50,23 @@ function ToolBirdsExtension:onUpdate(vehicle, dt, isCurrentlyWorking)
 
     local data = vehicle.toolBirdsData
 
+    -- Ensure we have a flock manager
+    if not data.flockManager then
+        data.flockManager = ToolBirdFlockManager.new(data.toolId, vehicle, data.workAreaType)
+    end
+
+    -- Report tool position/state to the flock manager (keeps it alive)
+    data.flockManager:reportToolActive(vehicle)
+
     -- Handle state transitions
     if isCurrentlyWorking and not data.isWorking then
         -- Just started working - activate flock and cancel any despawn timer
-        ToolBirdsExtension:activateFlockManager(vehicle)
-        if data.flockManager then
-            data.flockManager:cancelDespawnTimer()
-        end
+        data.flockManager:activate()
+        data.flockManager:cancelDespawnTimer()
         data.isWorking = true
     elseif not isCurrentlyWorking and data.isWorking then
         -- Just stopped working - start despawn timer on flock
         data.isWorking = false
-        if data.flockManager then
-            data.flockManager:startDespawnTimer()
-        end
-    end
-end
-
----
--- Activate the bird flock manager for this tool
--- @param vehicle: The vehicle with tool
----
-function ToolBirdsExtension:activateFlockManager(vehicle)
-    if not g_currentMission:getIsClient() then return end
-
-    local data = vehicle.toolBirdsData
-
-    if not data then
-        return
-    end
-
-    if not data.flockManager then
-        data.flockManager = ToolBirdFlockManager.new(vehicle, data.workAreaType)
-    end
-
-    data.flockManager:activate()
-end
-
----
--- Deactivate and cleanup the bird flock manager
--- @param vehicle: The vehicle with tool
----
-function ToolBirdsExtension:deactivateFlockManager(vehicle)
-    local data = vehicle.toolBirdsData
-
-    if not data or not data.flockManager then
-        return
-    end
-
-    data.flockManager:cleanup()
-end
-
----
--- Cleanup when vehicle is deleted
--- @param vehicle: The vehicle with tool
----
-function ToolBirdsExtension:onDelete(vehicle)
-    if vehicle.toolBirdsData and vehicle.toolBirdsData.flockManager then
-        ToolBirdsExtension:deactivateFlockManager(vehicle)
-
-        if BirdManager then
-            BirdManager:unregisterFlockManager(vehicle)
-        end
-
-        vehicle.toolBirdsData = nil
+        data.flockManager:startDespawnTimer()
     end
 end

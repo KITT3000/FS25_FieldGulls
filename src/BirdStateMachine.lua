@@ -171,8 +171,8 @@ function BirdStateMachine:enterApproachingPlowState()
             targetZ = workAreaZ
         end
     else
-        -- No work area - just fly toward vehicle
-        local vehicleX, vehicleY, vehicleZ = getWorldTranslation(self.bird.manager.vehicle.rootNode)
+        -- No work area - just fly toward vehicle (or last known position)
+        local vehicleX, vehicleY, vehicleZ = self:getVehiclePosition()
         targetX = vehicleX
         targetZ = vehicleZ
     end
@@ -193,7 +193,7 @@ function BirdStateMachine:updateApproachingPlowState(dt)
         if g_gridFeedingZones and g_gridFeedingZones:getCellCount() > 0 then
             local currentX, currentY, currentZ = self.bird:getCurrentPosition()
             local isMoving = self:isVehicleMoving()
-            local vehicleX, vehicleY, vehicleZ = getWorldTranslation(self.bird.manager.vehicle.rootNode)
+            local vehicleX, vehicleY, vehicleZ = self:getVehiclePosition()
             local workingWidth = self.bird.manager.workingWidth
 
             -- Try to get a valid target (this will filter by distance from tool)
@@ -230,7 +230,7 @@ function BirdStateMachine:enterDivingState()
 
     -- Request a feeding target from the central grid system
     local isMoving = self:isVehicleMoving()
-    local vehicleX, vehicleY, vehicleZ = getWorldTranslation(self.bird.manager.vehicle.rootNode)
+    local vehicleX, vehicleY, vehicleZ = self:getVehiclePosition()
     local workingWidth = self.bird.manager.workingWidth
 
     local targetX = currentX
@@ -532,7 +532,7 @@ function BirdStateMachine:updateSearchingState(dt)
         if g_gridFeedingZones and cellCount > 0 then
             local currentX, currentY, currentZ = self.bird:getCurrentPosition()
             local isMoving = self:isVehicleMoving()
-            local vehicleX, vehicleY, vehicleZ = getWorldTranslation(self.bird.manager.vehicle.rootNode)
+            local vehicleX, vehicleY, vehicleZ = self:getVehiclePosition()
 
             -- Try to get a valid target (this will filter by distance from tool)
             local workingWidth = self.bird.manager.workingWidth
@@ -605,13 +605,41 @@ function BirdStateMachine:isDespawning()
 end
 
 ---
+-- Check if the vehicle reference is still valid
+-- @return boolean: True if vehicle and rootNode exist
+---
+function BirdStateMachine:isVehicleValid()
+    return self.bird
+        and self.bird.manager
+        and self.bird.manager:isVehicleValid()
+end
+
+---
+-- Get the vehicle world position safely.
+-- Returns live position if vehicle exists, otherwise last known position from the flock manager.
+-- @return x, y, z world coordinates
+---
+function BirdStateMachine:getVehiclePosition()
+    if self:isVehicleValid() then
+        return getWorldTranslation(self.bird.manager.vehicle.rootNode)
+    end
+    -- Fall back to last known position stored by the flock manager
+    local mgr = self.bird and self.bird.manager
+    if mgr then
+        return mgr.lastToolX, mgr.lastToolY, mgr.lastToolZ
+    end
+    -- Absolute fallback: bird's own position
+    return self.bird:getCurrentPosition()
+end
+
+---
 -- Check if the vehicle is currently moving
 -- @return boolean: True if moving (speed > 0.5 km/h), false if stopped or no vehicle
 ---
 function BirdStateMachine:isVehicleMoving()
-    -- Check if we have access to the vehicle through the bird's manager
-    if not self.bird or not self.bird.manager or not self.bird.manager.vehicle then
-        return true -- Default to true (assume moving) if we can't check
+    -- If vehicle is gone (deleted/returned), it's not moving
+    if not self:isVehicleValid() then
+        return false
     end
 
     local vehicle = self.bird.manager.vehicle
@@ -625,7 +653,7 @@ function BirdStateMachine:isVehicleMoving()
         return vehicle.lastSpeed > 0.5
     end
 
-    return true -- Default to true if we can't determine speed
+    return false -- Default to false if we can't determine speed
 end
 
 ---

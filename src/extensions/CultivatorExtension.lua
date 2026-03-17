@@ -59,19 +59,7 @@ function CultivatorExtension:onEndWorkAreaProcessing(superFunc, dt)
 
     local spec = self.spec_cultivator
     local isCurrentlyWorking = spec and spec.isWorking or false
-    ToolBirdsExtension:onUpdate(self, dt, isCurrentlyWorking)
-end
-
----
--- Extended onDelete function for Cultivator specialization
--- @param superFunc: Original function
----
-function CultivatorExtension:onDelete(superFunc)
-    ToolBirdsExtension:onDelete(self)
-
-    if superFunc ~= nil then
-        superFunc(self)
-    end
+    ToolBirdsExtension:reportToolActive(self, dt, isCurrentlyWorking)
 end
 
 -- Hook into Cultivator specialization
@@ -83,9 +71,4 @@ Cultivator.processCultivatorArea = Utils.overwrittenFunction(
 Cultivator.onEndWorkAreaProcessing = Utils.overwrittenFunction(
     Cultivator.onEndWorkAreaProcessing,
     CultivatorExtension.onEndWorkAreaProcessing
-)
-
-Cultivator.onDelete = Utils.overwrittenFunction(
-    Cultivator.onDelete,
-    CultivatorExtension.onDelete
 )
