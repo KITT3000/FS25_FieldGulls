@@ -141,6 +141,19 @@ function ToolBirdFlockManager:determineBirdSpawn()
         return false
     end
 
+    -- Check for precipitation - birds don't appear in rain/snow/hail
+    local weather = g_currentMission.environment.weather
+    if weather then
+        local rainfall = weather:getRainFallScale()
+        local snowfall = weather:getSnowFallScale()
+        local hailfall = weather:getHailFallScale()
+
+        if rainfall > 0 or snowfall > 0 or hailfall > 0 then
+            self.noBirdsUntilTime = g_time + (ToolBirdFlockManager.NO_BIRDS_TIMEOUT_MINUTES * 60 * 1000)
+            return false
+        end
+    end
+
     -- Check chance of birds appearing
     local chanceOfBirds = BirdSettings and BirdSettings.settings and BirdSettings.settings.chanceOfBirds or 0.7
     local roll = math.random()
