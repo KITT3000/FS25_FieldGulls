@@ -45,6 +45,11 @@ function SimpleBirdDirect.new(x, y, z, manager)
     self.pathDistance = 0 -- Distance traveled along current path
     self.usingCurvedPath = false
 
+    -- Current flight direction (normalized) for smooth path transitions
+    self.currentDirX = 0
+    self.currentDirY = 0
+    self.currentDirZ = 1
+
     -- Visual node (will be loaded async)
     self.visualNode = nil
     self.sceneNode = nil
@@ -299,8 +304,9 @@ function SimpleBirdDirect:moveToCurved(x, y, z, speed, curvature)
 
     local currX, currY, currZ = self:getCurrentPosition()
 
-    -- Create curved path from current position to target
-    self.curvedPath = CurvedPathPlanner.new(currX, currY, currZ, x, y, z, curvature)
+    -- Create curved path from current position to target, passing current flight direction
+    self.curvedPath = CurvedPathPlanner.new(currX, currY, currZ, x, y, z, curvature,
+        self.currentDirX, self.currentDirY, self.currentDirZ)
     self.pathDistance = 0
 
     self.targetX = x
@@ -364,6 +370,11 @@ function SimpleBirdDirect:update(dt)
         if self.sceneNode and not completed then
             local t = self.pathDistance / self.curvedPath:getTotalLength()
             local dx, dy, dz = self.curvedPath:getTangentAtParameter(t)
+
+            -- Track current flight direction for smooth next-path transitions
+            self.currentDirX = dx
+            self.currentDirY = dy
+            self.currentDirZ = dz
 
             if dx ~= 0 or dz ~= 0 then
                 local rotY = math.atan2(dx, dz)
@@ -444,6 +455,14 @@ function SimpleBirdDirect:update(dt)
         local moveDZ = newZ - currentZ
 
         if self.sceneNode and (moveDX ~= 0 or moveDZ ~= 0) and not willReachTarget then
+            -- Track current flight direction for smooth next-path transitions
+            local moveLen = math.sqrt(moveDX * moveDX + moveDY * moveDY + moveDZ * moveDZ)
+            if moveLen > 0.001 then
+                self.currentDirX = moveDX / moveLen
+                self.currentDirY = moveDY / moveLen
+                self.currentDirZ = moveDZ / moveLen
+            end
+
             local rotY = math.atan2(moveDX, moveDZ)
             local pitch = 0
             

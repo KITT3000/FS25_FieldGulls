@@ -377,13 +377,16 @@ function BirdStateMachine:enterFeedingUpState()
     end
 
     -- Fly upward with some horizontal drift
-    local upHeight = self.feedingConfig.upwardHeight + math.random() * 2.0 -- 10-12m
-    local driftX = (math.random() - 0.5) * 10.0                            -- Small horizontal drift
+    local driftX = (math.random() - 0.5) * 10.0
     local driftZ = (math.random() - 0.5) * 10.0
 
     local targetX = currentX + driftX
-    local targetY = currentY + upHeight
     local targetZ = currentZ + driftZ
+
+    -- Use terrain-relative height so flee altitude is consistent regardless of starting height
+    local terrainY = getTerrainHeightAtWorldPos(g_currentMission.terrainRootNode, targetX, 0, targetZ)
+    local upHeight = self.feedingConfig.upwardHeight + math.random() * 1.5
+    local targetY = math.max(currentY + 1.0, terrainY + upHeight)
 
     self.stateData.targetX = targetX
     self.stateData.targetY = targetY
@@ -497,12 +500,12 @@ function BirdStateMachine:enterSearchingState()
     local targetX = currentX + math.sin(randomAngle) * randomDistance
     local targetZ = currentZ + math.cos(randomAngle) * randomDistance
 
-    -- Target height: 10-20m above terrain
+    -- Target height: searchingHeight + 0-2m above terrain
     local targetTerrainY = getTerrainHeightAtWorldPos(g_currentMission.terrainRootNode, targetX, 0, targetZ)
-    local targetHeight = self.feedingConfig.searchingHeight + math.random() * 5 -- 15-20m
+    local targetHeight = self.feedingConfig.searchingHeight + math.random() * 2
     local targetY = targetTerrainY + targetHeight
 
-    self.bird:moveToTarget(targetX, targetY, targetZ, 8.0)
+    self.bird:moveToCurved(targetX, targetY, targetZ, 8.0, 0.4)
 end
 
 function BirdStateMachine:updateSearchingState(dt)
@@ -516,10 +519,10 @@ function BirdStateMachine:updateSearchingState(dt)
         local targetZ = currentZ + math.cos(randomAngle) * randomDistance
 
         local targetTerrainY = getTerrainHeightAtWorldPos(g_currentMission.terrainRootNode, targetX, 0, targetZ)
-        local targetHeight = self.feedingConfig.searchingHeight + math.random() * 5
+        local targetHeight = self.feedingConfig.searchingHeight + math.random() * 2
         local targetY = targetTerrainY + targetHeight
 
-        self.bird:moveToTarget(targetX, targetY, targetZ, 8.0)
+        self.bird:moveToCurved(targetX, targetY, targetZ, 8.0, 0.4)
     end
 
     -- Periodically check if valid feeding targets are now available

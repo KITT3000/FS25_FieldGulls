@@ -11,9 +11,10 @@ local CurvedPathPlanner_mt = Class(CurvedPathPlanner)
 -- @param startX, startY, startZ: Starting position
 -- @param endX, endY, endZ: Ending position
 -- @param curvature: How curved the path should be (0.0-1.0, default 0.5)
+-- @param initialDirX, initialDirY, initialDirZ: Optional normalized direction the bird is currently flying
 -- @return CurvedPathPlanner instance
 ---
-function CurvedPathPlanner.new(startX, startY, startZ, endX, endY, endZ, curvature)
+function CurvedPathPlanner.new(startX, startY, startZ, endX, endY, endZ, curvature, initialDirX, initialDirY, initialDirZ)
     local self = setmetatable({}, CurvedPathPlanner_mt)
 
     curvature = curvature or 0.5
@@ -26,7 +27,7 @@ function CurvedPathPlanner.new(startX, startY, startZ, endX, endY, endZ, curvatu
     self.endY = endY
     self.endZ = endZ
 
-    self:calculateControlPoints(curvature)
+    self:calculateControlPoints(curvature, initialDirX, initialDirY, initialDirZ)
 
     self.segments = 20 -- Number of segments to divide the curve
     self.segmentPoints = {}
@@ -42,8 +43,9 @@ end
 -- Calculate control points for the Bezier curve
 -- Creates control points that make the path curve naturally
 -- @param curvature: Strength of the curve (0.0-1.0)
+-- @param initialDirX, initialDirY, initialDirZ: Optional current flight direction (normalized)
 ---
-function CurvedPathPlanner:calculateControlPoints(curvature)
+function CurvedPathPlanner:calculateControlPoints(curvature, initialDirX, initialDirY, initialDirZ)
     -- Direction vector from start to end
     local dx = self.endX - self.startX
     local dy = self.endY - self.startY
@@ -61,13 +63,36 @@ function CurvedPathPlanner:calculateControlPoints(curvature)
         return
     end
 
+    -- If we have an initial direction, place control point 1 along it for smooth entry
+    if initialDirX and initialDirZ then
+        local dirLen = math.sqrt(initialDirX * initialDirX + (initialDirY or 0) * (initialDirY or 0) + initialDirZ * initialDirZ)
+        if dirLen > 0.001 then
+            -- Use horizontal heading only - ignore vertical momentum so the curve
+            -- tracks the straight-line altitude between start and end (no arcing up)
+            local flatLen = math.sqrt(initialDirX * initialDirX + initialDirZ * initialDirZ)
+            local flatDirX = flatLen > 0.001 and (initialDirX / flatLen) or (dx / distance)
+            local flatDirZ = flatLen > 0.001 and (initialDirZ / flatLen) or (dz / distance)
+
+            -- Control point 1: continue along current horizontal heading, Y follows linear interpolation
+            local cp1Dist = distance * 0.33
+            self.control1X = self.startX + flatDirX * cp1Dist
+            self.control1Y = self.startY + dy * 0.33
+            self.control1Z = self.startZ + flatDirZ * cp1Dist
+
+            -- Control point 2: close to end, biased toward straight approach
+            self.control2X = self.startX + dx * 0.90
+            self.control2Y = self.startY + dy * 0.90
+            self.control2Z = self.startZ + dz * 0.90
+            return
+        end
+    end
+
+    -- No initial direction - use random perpendicular offset (original behavior)
     -- Normalized direction
     local ndx = dx / distance
-    local ndy = dy / distance
     local ndz = dz / distance
 
     -- Create perpendicular vector for curve offset
-    -- Use world up vector (0,1,0) to create perpendicular
     local perpX = -ndz
     local perpZ = ndx
     local perpLength = math.sqrt(perpX * perpX + perpZ * perpZ)
@@ -76,29 +101,25 @@ function CurvedPathPlanner:calculateControlPoints(curvature)
         perpX = perpX / perpLength
         perpZ = perpZ / perpLength
     else
-        -- Fallback if direction is straight up/down
         perpX = 1.0
         perpZ = 0.0
     end
 
     -- Add some randomness to curve direction for variety
-    local curveOffset = distance * curvature * (0.2 + math.random() * 0.3) -- 20-50% of distance
-    local curveAngle = (math.random() - 0.5) * math.pi                     -- Random curve direction
+    local curveOffset = distance * curvature * (0.2 + math.random() * 0.3)
+    local curveAngle = (math.random() - 0.5) * math.pi
 
-    -- Rotate perpendicular vector by random angle
     local offsetX = math.cos(curveAngle) * perpX * curveOffset
     local offsetZ = math.sin(curveAngle) * perpZ * curveOffset
-    local offsetY = (math.random() - 0.5) * distance * curvature * 0.3 -- Slight vertical curve variation
 
-    -- Control point 1: 1/3 along path, offset perpendicular for initial curve
+    -- Control point 1: 1/3 along path, horizontal offset only, Y follows linear interpolation
     self.control1X = self.startX + dx * 0.33 + offsetX
-    self.control1Y = self.startY + dy * 0.33 + offsetY
+    self.control1Y = self.startY + dy * 0.33
     self.control1Z = self.startZ + dz * 0.33 + offsetZ
 
     -- Control point 2: Much closer to end (90% of path) with minimal offset for straighter approach
-    -- This makes the end of the curve much gentler
     self.control2X = self.startX + dx * 0.90 - offsetX * 0.1
-    self.control2Y = self.startY + dy * 0.90 - offsetY * 0.1
+    self.control2Y = self.startY + dy * 0.90
     self.control2Z = self.startZ + dz * 0.90 - offsetZ * 0.1
 end
 
